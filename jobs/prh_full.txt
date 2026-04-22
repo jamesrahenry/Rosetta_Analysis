@@ -1,0 +1,27 @@
+# PRH paper — full run (Phases 1–7, L4 machine)
+# Run with: bash ~/rosetta_tools/bin/gpu_runner.sh jobs/prh_full.txt
+# Written: 2026-04-19 UTC
+#
+# Phase 1 — Cluster A: 768-dim  (~20 min, both GPUs, 4 models)
+cd ~/semantic_convergence && python src/extract.py --prh-cluster A --dtype bfloat16 --batch-size 32 --parallel
+# Phase 2 — Scale ladder  (~15 min, both GPUs, 5 models)
+cd ~/semantic_convergence && python src/extract.py --prh-cluster scale --dtype bfloat16 --batch-size 32 --parallel
+# Phase 3 — Cluster B: 2048-dim  (~25 min, both GPUs, 4 models)
+cd ~/semantic_convergence && python src/extract.py --prh-cluster B --dtype bfloat16 --batch-size 16 --parallel
+# Phase 4 — Cluster C: 4096-dim  (~60 min, single L4 sequential, 4 models)
+cd ~/semantic_convergence && python src/extract.py --prh-cluster C --dtype bfloat16 --batch-size 4
+# Phase 5 — Cluster D: 3584-dim  (~40 min, single L4 sequential, 2 models)
+cd ~/semantic_convergence && python src/extract.py --prh-cluster D --dtype bfloat16 --batch-size 4
+# Phase 6a — Cluster E: pythia-12b 5120-dim  (~45 min, both L4s via device_map=auto)
+cd ~/semantic_convergence && python src/extract.py --model EleutherAI/pythia-12b --dtype bfloat16 --batch-size 2
+# Phase 6b — Cluster E: Qwen2.5-14B 5120-dim  (~45 min, both L4s via device_map=auto)
+cd ~/semantic_convergence && python src/extract.py --model Qwen/Qwen2.5-14B --dtype bfloat16 --batch-size 2
+# ---
+# Phase 7a — Procrustes alignment, same-dim pairs only (zero-PCA, primary claims)
+cd ~/semantic_convergence && python src/align.py --all --same-dim-only --out results/alignment_results_samedim.csv
+# Phase 7b — Depth-matched alignment (gradient analysis)
+cd ~/semantic_convergence && python src/align_depth_matched.py --all
+# Phase 7c — Permuted-label null (N=100)
+cd ~/semantic_convergence && python src/align.py --all --same-dim-only --permute-labels 100 --out results/null_permuted.csv
+# Phase 7d — Cross-concept rotation transfer
+cd ~/semantic_convergence && python src/align.py --all --same-dim-only --cross-concept-transfer --out results/null_cross_concept.csv

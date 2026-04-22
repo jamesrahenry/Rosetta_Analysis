@@ -1,0 +1,341 @@
+"""
+ablate_random_direction.py — Random-direction ablation null at CAZ peak.
+
+Answers the reviewer's question: is the separation reduction we observe at CAZ
+peak layers *specific to the concept direction*, or would ablating any random
+unit vector at that layer produce a comparable drop?
+
+For each (model, concept):
+  1. Load baseline + concept-direction reduction at CAZ peak from existing
+     `ablation_global_sweep_<concept>.json`.
+  2. Generate N random unit vectors (same dimensionality as residual stream),
+     ablate each at the CAZ peak layer, measure separation reduction at the
+     final layer.
+  3. Report concept reduction vs random distribution: mean, std, max, p-value,
+     and a specificity ratio (concept_red / random_mean_red).
+
+This is the direct null that §8.4 acknowledged was missing.
+
+Usage
+-----
+    python src/ablate_random_direction.py --model EleutherAI/pythia-70m
+    python src/ablate_random_direction.py --all
+    python src/ablate_random_direction.py --all --n-seeds 20
+
+Output per (model, concept):
+    results/<extraction_dir>/ablation_random_<concept>.json
+
+Written: 2026-04-18 UTC
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import logging
+import time
+from pathlib import Path
+
+import numpy as np
+import torch
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+from rosetta_tools.gpu_utils import (
+    get_device, get_dtype, log_device_info, log_vram, release_model, purge_hf_cache,
+    vram_stats,
+)
+from rosetta_tools.extraction import extract_layer_activations
+from rosetta_tools.caz import compute_separation
+from rosetta_tools.ablation import DirectionalAblator, get_transformer_layers
+from rosetta_tools.dataset import load_pairs, texts_by_label
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    datefmt="%H:%M:%S",
+)
+log = logging.getLogger(__name__)
+
+RESULTS_ROOT = Path("results")
+DATA_ROOT = Path(__file__).parent.parent / "data"
+
+CONCEPT_DATASETS: dict[str, str] = {
+    "credibility":    "credibility_pairs.jsonl",
+    "negation":       "negation_pairs.jsonl",
+    "sentiment":      "sentiment_pairs.jsonl",
+    "causation":      "causation_pairs.jsonl",
+    "certainty":      "certainty_pairs.jsonl",
+    "moral_valence":  "moral_valence_pairs.jsonl",
+    "temporal_order": "temporal_order_pairs.jsonl",
+}
+
+
+def find_extraction_dir(model_id: str) -> Path | None:
+    candidates = []
+    for d in sorted(RESULTS_ROOT.iterdir(), reverse=True):
+        summary = d / "run_summary.json"
+        if d.is_dir() and summary.exists():
+            try:
+                if json.loads(summary.read_text()).get("model_id") == model_id:
+                    candidates.append(d)
+            except (json.JSONDecodeError, KeyError):
+                continue
+    # Prefer the newest dir that has at least one global sweep; fall back to newest overall.
+    for c in candidates:
+        if any(c.glob("ablation_global_sweep_*.json")):
+            return c
+    return candidates[0] if candidates else None
+
+
+def discover_models() -> list[str]:
+    models = set()
+    for d in RESULTS_ROOT.iterdir():
+        s = d / "run_summary.json"
+        if s.exists():
+            try:
+                models.add(json.loads(s.read_text()).get("model_id", ""))
+            except Exception:
+                pass
+    return sorted(m for m in models if m)
+
+
+def random_unit_vector(dim: int, rng: np.random.Generator) -> np.ndarray:
+    """Draw an isotropic random unit vector of given dimensionality."""
+    v = rng.standard_normal(dim).astype(np.float64)
+    return v / np.linalg.norm(v)
+
+
+def measure_final_sep_with_ablation(
+    model, tokenizer, layers, ablate_layer_idx,
+    direction, pos_texts, neg_texts, device, batch_size,
+) -> float:
+    dtype = torch.bfloat16 if next(model.parameters()).dtype == torch.bfloat16 else torch.float32
+    direction_t = torch.tensor(direction, dtype=dtype, device=device)
+    direction_t = direction_t / direction_t.norm()
+
+    with DirectionalAblator(layers[ablate_layer_idx], direction_t, dtype=dtype):
+        pos_acts = extract_layer_activations(
+            model, tokenizer, pos_texts, device=device, batch_size=batch_size, pool="last"
+        )
+        neg_acts = extract_layer_activations(
+            model, tokenizer, neg_texts, device=device, batch_size=batch_size, pool="last"
+        )
+    return float(compute_separation(pos_acts[-1], neg_acts[-1]))
+
+
+def measure_baseline_final_sep(
+    model, tokenizer, pos_texts, neg_texts, device, batch_size,
+) -> float:
+    pos_acts = extract_layer_activations(
+        model, tokenizer, pos_texts, device=device, batch_size=batch_size, pool="last"
+    )
+    neg_acts = extract_layer_activations(
+        model, tokenizer, neg_texts, device=device, batch_size=batch_size, pool="last"
+    )
+    return float(compute_separation(pos_acts[-1], neg_acts[-1]))
+
+
+def run_concept(
+    model, tokenizer, concept, extraction_dir,
+    n_seeds, device, n_pairs, batch_size,
+) -> dict | None:
+    """Run random-direction ablation at CAZ peak for one concept."""
+    existing_sweep = extraction_dir / f"ablation_global_sweep_{concept}.json"
+    if not existing_sweep.exists():
+        log.warning("  No global sweep for %s — skipping", concept)
+        return None
+
+    sweep = json.loads(existing_sweep.read_text())
+    caz_peak = sweep["caz_peak"]
+    baseline_final_sep = sweep["baseline_final_sep"]
+    concept_red = sweep["caz_global_sep_reduction"]
+
+    # Load pairs
+    dataset_path = DATA_ROOT / CONCEPT_DATASETS[concept]
+    pairs = load_pairs(dataset_path)
+    if n_pairs and len(pairs) > n_pairs:
+        pairs = pairs[:n_pairs]
+    pos_texts, neg_texts = texts_by_label(pairs)
+
+    layers = get_transformer_layers(model)
+
+    # Infer residual stream dim from model config
+    try:
+        hidden_dim = int(model.config.hidden_size)
+    except AttributeError:
+        hidden_dim = int(model.config.n_embd)
+
+    log.info("  Concept=%s caz_peak=L%d dim=%d concept_red=%.4f n_seeds=%d",
+             concept, caz_peak, hidden_dim, concept_red, n_seeds)
+
+    # Re-measure baseline for consistency (since we're running fresh forward passes)
+    baseline_check = measure_baseline_final_sep(
+        model, tokenizer, pos_texts, neg_texts, device, batch_size
+    )
+    log.info("    baseline check: %.4f (sweep reported: %.4f)",
+             baseline_check, baseline_final_sep)
+
+    # Use the freshly measured baseline as the denominator
+    baseline_final_sep = baseline_check
+
+    # Random-direction ablations
+    rng = np.random.default_rng(seed=42)
+    random_results = []
+    for seed in range(n_seeds):
+        t0 = time.time()
+        direction = random_unit_vector(hidden_dim, rng)
+        ablated_sep = measure_final_sep_with_ablation(
+            model, tokenizer, layers, caz_peak, direction,
+            pos_texts, neg_texts, device, batch_size,
+        )
+        reduction = max(0.0, (baseline_final_sep - ablated_sep) / baseline_final_sep) \
+            if baseline_final_sep > 0 else 0.0
+        random_results.append({
+            "seed": seed,
+            "ablated_final_sep": round(ablated_sep, 4),
+            "global_sep_reduction": round(reduction, 4),
+        })
+        log.info("    seed=%d ablated_sep=%.4f reduction=%.3f (%.1fs)",
+                 seed, ablated_sep, reduction, time.time() - t0)
+
+    random_reds = np.array([r["global_sep_reduction"] for r in random_results])
+    random_mean = float(random_reds.mean())
+    random_std  = float(random_reds.std(ddof=1)) if len(random_reds) > 1 else 0.0
+    random_max  = float(random_reds.max())
+
+    # Specificity ratio: how much bigger is concept-direction ablation vs random
+    ratio = concept_red / max(random_mean, 1e-6)
+
+    # One-sample z-test: is concept_red significantly above the random distribution?
+    if random_std > 0:
+        z_score = (concept_red - random_mean) / random_std
+    else:
+        z_score = float("inf") if concept_red > random_mean else 0.0
+
+    # Count of random seeds that met or exceeded concept_red
+    n_random_ge_concept = int((random_reds >= concept_red).sum())
+    # One-sided empirical p: (n_random >= concept + 1) / (n_random + 1)
+    empirical_p = (n_random_ge_concept + 1) / (len(random_reds) + 1)
+
+    log.info("    concept_red=%.4f random_mean=%.4f±%.4f ratio=%.2fx z=%.2f p=%.3f",
+             concept_red, random_mean, random_std, ratio, z_score, empirical_p)
+
+    return {
+        "model_id":                  sweep["model_id"],
+        "concept":                   concept,
+        "caz_peak":                  caz_peak,
+        "n_layers":                  sweep["n_layers"],
+        "hidden_dim":                hidden_dim,
+        "n_random_seeds":            n_seeds,
+        "baseline_final_sep":        round(baseline_final_sep, 4),
+        "concept_direction_reduction":   round(concept_red, 4),
+        "random_directions":         random_results,
+        "random_mean_reduction":     round(random_mean, 4),
+        "random_std_reduction":      round(random_std, 4),
+        "random_max_reduction":      round(random_max, 4),
+        "specificity_ratio":         round(ratio, 2),
+        "z_score":                   round(z_score, 2),
+        "empirical_p_one_sided":     round(empirical_p, 4),
+        "n_random_ge_concept":       n_random_ge_concept,
+    }
+
+
+def run_model(model_id: str, concepts: list[str], args) -> None:
+    extraction_dir = find_extraction_dir(model_id)
+    if extraction_dir is None:
+        log.error("No extraction results for %s — skipping", model_id)
+        return
+
+    pending = [c for c in concepts
+               if not (extraction_dir / f"ablation_random_{c}.json").exists()
+               or args.overwrite]
+    if not pending:
+        log.info("Already done: %s (use --overwrite to rerun)", model_id)
+        return
+    concepts = pending
+
+    log.info("=== Random-direction control: %s ===", model_id)
+    device = get_device(args.device)
+    dtype  = get_dtype(args.dtype, device)
+    log_device_info(device, dtype)
+
+    try:
+        tokenizer = AutoTokenizer.from_pretrained(model_id)
+        try:
+            model = AutoModelForCausalLM.from_pretrained(model_id, dtype=dtype, device_map=device)
+        except TypeError:
+            model = AutoModelForCausalLM.from_pretrained(model_id, dtype=dtype).to(device)
+        model.eval()
+    except Exception as e:
+        log.error("Failed to load %s: %s", model_id, e)
+        return
+
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+
+    if device == "cuda":
+        stats = vram_stats(device)
+        if stats:
+            log_vram(device)
+
+    t_model_start = time.time()
+
+    for concept in concepts:
+        out_path = extraction_dir / f"ablation_random_{concept}.json"
+        if out_path.exists() and not args.overwrite:
+            log.info("  Skipping %s (already done)", concept)
+            continue
+        try:
+            result = run_concept(
+                model, tokenizer, concept, extraction_dir,
+                n_seeds=args.n_seeds, device=device,
+                n_pairs=args.n_pairs, batch_size=args.batch_size,
+            )
+        except Exception as e:
+            log.error("  %s %s failed: %s", model_id, concept, e)
+            continue
+        if result is None:
+            continue
+        out_path.write_text(json.dumps(result, indent=2))
+        log.info("  Wrote %s", out_path)
+
+    release_model(model)
+    if not args.no_clean_cache:
+        purge_hf_cache(model_id)
+
+    log.info("Done: %s (%.1fs)", model_id, time.time() - t_model_start)
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Random-direction ablation null at CAZ peak layer — the reviewer's missing control."
+    )
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument("--model", type=str)
+    group.add_argument("--all", action="store_true")
+
+    parser.add_argument("--concepts", nargs="+", default=None)
+    parser.add_argument("--n-seeds", type=int, default=10,
+                        help="Number of random unit vectors to ablate per (model, concept). Default: 10")
+    parser.add_argument("--n-pairs", type=int, default=50)
+    parser.add_argument("--batch-size", type=int, default=4)
+    parser.add_argument("--device", choices=["cuda", "cpu", "auto"], default="auto")
+    parser.add_argument("--dtype", choices=["auto", "bfloat16", "float32"], default="auto")
+    parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument("--no-clean-cache", action="store_true")
+
+    args = parser.parse_args()
+    concepts = args.concepts or list(CONCEPT_DATASETS.keys())
+
+    if args.all:
+        models = discover_models()
+        log.info("Found %d models", len(models))
+    else:
+        models = [args.model]
+
+    for model_id in models:
+        run_model(model_id, concepts, args)
+
+
+if __name__ == "__main__":
+    main()
