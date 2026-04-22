@@ -31,10 +31,12 @@ log = logging.getLogger(__name__)
 
 MODELS_ROOT = Path.home() / "rosetta_data" / "models"
 
-CONCEPTS = [
-    "causation", "certainty", "credibility", "moral_valence",
-    "negation", "sentiment", "temporal_order",
-]
+def discover_concepts(extraction_dir: Path) -> list[str]:
+    """Return all concepts with a caz_*.json file in the extraction directory."""
+    return sorted(
+        p.stem[len("caz_"):]
+        for p in extraction_dir.glob("caz_*.json")
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -72,7 +74,7 @@ def discover_models() -> list[str]:
 
 def build_model_gems(
     model_id: str,
-    concepts: list[str],
+    concepts: list[str] | None = None,
     k: int = 1,
     force: bool = False,
 ) -> dict:
@@ -90,6 +92,9 @@ def build_model_gems(
     if extraction_dir is None:
         log.error("No extraction results for %s", model_id)
         return {}
+
+    if concepts is None:
+        concepts = discover_concepts(extraction_dir)
 
     paradigm = attention_paradigm_of(model_id)
     log.info("=== Building GEMs: %s [%s] ===", model_id, paradigm)
@@ -243,7 +248,7 @@ def main():
                         metavar="MODEL_ID", help="Skip this model (may be repeated)")
     args = parser.parse_args()
 
-    concepts = args.concepts or CONCEPTS
+    concepts = args.concepts or None  # None → auto-discover per model from caz_*.json
 
     if args.phase == 2 and args.k == 1:
         args.k = 3
