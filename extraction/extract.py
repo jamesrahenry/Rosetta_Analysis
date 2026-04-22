@@ -74,104 +74,31 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# PRH paper model sets — organised by zero-PCA dimension cluster
-#
-# Each cluster contains models that share hidden_dim, allowing Procrustes
-# alignment without any PCA compression (no inflation artifacts).
-# Run one model at a time; purge weights after each extraction.
+# Model sets — sourced from rosetta_tools.models registry (models.yaml)
 # ---------------------------------------------------------------------------
+from rosetta_tools.models import (
+    models_by_cluster, all_models as _registry_all_models,
+    requires_quantization, vram_gb as _registry_vram,
+)
 
-# Cluster A — 768-dim  (single L4, bf16, ~0.3–0.5 GB each)
-PRH_CLUSTER_A = [
-    "openai-community/gpt2",         # GPT-2, MHA, learned pos
-    "EleutherAI/gpt-neo-125m",        # GPT-Neo, MHA, ALiBi
-    "EleutherAI/pythia-160m",         # NeoX, parallel attn, RoPE
-    "facebook/opt-125m",              # OPT, MHA, learned pos
-]
+PRH_CLUSTER_A      = models_by_cluster("A")
+PRH_CLUSTER_B      = models_by_cluster("B")
+PRH_CLUSTER_C      = models_by_cluster("C")
+PRH_CLUSTER_D      = models_by_cluster("D")
+PRH_CLUSTER_E      = models_by_cluster("E")
+PRH_CLUSTER_G      = models_by_cluster("G")
+PRH_FRONTIER_MODELS = models_by_cluster("F", include_disabled=True)
+PRH_SCALE_LADDER   = models_by_cluster("scale")
 
-# Cluster B — 2048-dim  (single L4, bf16, ~2–6 GB each)
-PRH_CLUSTER_B = [
-    "EleutherAI/pythia-1b",           # NeoX, RoPE, 1B
-    "facebook/opt-1.3b",              # OPT, MHA, 1.3B
-    "meta-llama/Llama-3.2-1B",        # Llama3, GQA+SwiGLU, 1B  [gated]
-    "Qwen/Qwen2.5-3B",                # Qwen2, GQA+SwiGLU, 3B
-]
-
-# Cluster C — 4096-dim  (single L4, bf16 ~13–16 GB; Mixtral needs --load-4bit)
-PRH_CLUSTER_C = [
-    "EleutherAI/pythia-6.9b",         # NeoX, RoPE, 6.9B — MHA
-    "facebook/opt-6.7b",              # OPT, MHA, 6.7B
-    "meta-llama/Llama-3.1-8B",        # Llama3, GQA+SwiGLU, 8B  [gated]
-    "meta-llama/Llama-3.1-8B-Instruct", # Llama3 instruct variant  [gated]
-    "mistralai/Mistral-7B-v0.3",      # Mistral, GQA+SWA, 7B
-    "mistralai/Mixtral-8x7B-v0.1",    # Mixtral MoE, GQA, 8×7B  [needs --load-4bit]
-]
-
-# Cluster D — 3584-dim  (single L4, bf16, ~14–18 GB each)
-PRH_CLUSTER_D = [
-    "Qwen/Qwen2.5-7B",                # Qwen2, GQA+SwiGLU, 7B
-    "google/gemma-2-9b",              # Gemma2, sliding/global+GQA, 9B
-]
-
-# Cluster E — 5120-dim  (both L4s via device_map="auto" for bf16; 32B needs --load-4bit)
-PRH_CLUSTER_E = [
-    "EleutherAI/pythia-12b",          # NeoX, RoPE, 12B
-    "Qwen/Qwen2.5-14B",               # Qwen2, GQA+SwiGLU, 14B
-    "Qwen/Qwen2.5-32B",               # Qwen2, GQA+SwiGLU, 32B  [needs --load-4bit]
-]
-
-# Cluster G — 5376-dim  (Gemma 4; all need --load-4bit, ~15 GB at nf4)
-PRH_CLUSTER_G = [
-    "google/gemma-4-26B-A4B",         # Gemma4 MoE, 26B total / 4B active, 48 layers  [gated]
-    "google/gemma-4-31B",             # Gemma4 dense, 31B, 60 layers  [gated]
-]
-
-# Scale ladder — cross-dim, within-family only (for convergence-vs-scale plots)
-# These are NOT zero-PCA pairs. Reported separately with PCA caveats.
-PRH_SCALE_LADDER = [
-    "EleutherAI/pythia-70m",          # 512-dim
-    "EleutherAI/pythia-410m",         # 1024-dim
-    "EleutherAI/pythia-2.8b",         # 2560-dim
-    "Qwen/Qwen2.5-0.5B",              # 896-dim
-    "Qwen/Qwen2.5-1.5B",              # 1536-dim
-]
-
-# All proxy models (L4-runnable): clusters A-E+G + scale ladder
 PRH_PROXY_MODELS = (
     PRH_CLUSTER_A + PRH_CLUSTER_B + PRH_CLUSTER_C
     + PRH_CLUSTER_D + PRH_CLUSTER_E + PRH_CLUSTER_G + PRH_SCALE_LADDER
 )
 
-# Cluster F — 8192-dim  (H200 only, 8-bit for 70B; Falcon fits bf16)
-PRH_FRONTIER_MODELS = [
-    "tiiuae/falcon-40b",              # Falcon, MQA, 40B — bf16 on H200
-    "Qwen/Qwen2.5-72B",               # Qwen2, GQA+SwiGLU, 72B — 8-bit on H200
-    "meta-llama/Llama-3.1-70B",       # Llama3, GQA+SwiGLU, 70B — 8-bit on H200  [gated]
-]
-
-# Legacy list — kept for backward compatibility with existing scripts
-CROSS_ARCH_MODELS = [
-    "openai-community/gpt2",
-    "openai-community/gpt2-xl",
-    "EleutherAI/gpt-neo-125m",
-    "EleutherAI/pythia-160m",
-    "EleutherAI/pythia-410m",
-    "facebook/opt-125m",
-    "meta-llama/Llama-3.1-8B",
-    "mistralai/Mistral-7B-v0.3",
-]
-
 FRONTIER_MODELS = PRH_FRONTIER_MODELS
+CROSS_ARCH_MODELS = PRH_PROXY_MODELS  # legacy alias
 
 DEFAULT_CONCEPTS = CAZ_PRH_CONCEPTS  # 17 concepts from canonical dataset
-
-# Models that require 4-bit quantization (bf16 would exceed 2×L4 combined VRAM)
-MODEL_REQUIRES_4BIT = {
-    "mistralai/Mixtral-8x7B-v0.1",
-    "Qwen/Qwen2.5-32B",
-    "google/gemma-4-26B-A4B",
-    "google/gemma-4-31B",
-}
 
 # Canonical results root — all extractions land here, no timestamps
 ROSETTA_DATA_ROOT = Path.home() / "rosetta_data"
@@ -319,50 +246,6 @@ def _resolve_dtype(args_dtype: str | None, device: str) -> torch.dtype:
         return get_dtype(device)
 
 
-# Approximate bf16 VRAM (GB). Used to decide single-GPU vs device_map="auto".
-# 8-bit is roughly half these values.
-MODEL_VRAM_GB = {
-    # Cluster A (768-dim)
-    "openai-community/gpt2":          0.5,
-    "EleutherAI/gpt-neo-125m":        0.3,
-    "EleutherAI/pythia-160m":         0.4,
-    "facebook/opt-125m":              0.3,
-    # Cluster B (2048-dim)
-    "EleutherAI/pythia-1b":           2.1,
-    "facebook/opt-1.3b":              2.6,
-    "meta-llama/Llama-3.2-1B":        2.4,
-    "Qwen/Qwen2.5-3B":                6.2,
-    # Cluster C (4096-dim)
-    "EleutherAI/pythia-6.9b":        14.0,
-    "facebook/opt-6.7b":             13.4,
-    "meta-llama/Llama-3.1-8B":       16.0,
-    "meta-llama/Llama-3.1-8B-Instruct": 16.0,
-    "mistralai/Mistral-7B-v0.3":     14.5,
-    "mistralai/Mixtral-8x7B-v0.1":   93.0,   # bf16; run with --load-4bit (~24 GB nf4)
-    # Cluster D (3584-dim)
-    "Qwen/Qwen2.5-7B":               14.5,
-    "google/gemma-2-9b":             18.5,
-    # Cluster E (5120-dim) — need device_map="auto" across 2x L4
-    "EleutherAI/pythia-12b":         24.0,
-    "Qwen/Qwen2.5-14B":              28.0,
-    "Qwen/Qwen2.5-32B":              64.0,   # bf16; run with --load-4bit (~16 GB nf4)
-    # Cluster G (5376-dim) — Gemma 4; always 4-bit
-    "google/gemma-4-26B-A4B":        55.0,   # bf16; ~15 GB nf4
-    "google/gemma-4-31B":            62.0,   # bf16; ~16 GB nf4
-    # Scale ladder
-    "EleutherAI/pythia-70m":          0.2,
-    "EleutherAI/pythia-410m":         1.0,
-    "EleutherAI/pythia-2.8b":         5.7,
-    "Qwen/Qwen2.5-0.5B":              1.0,
-    "Qwen/Qwen2.5-1.5B":              3.1,
-    # Cluster F (8192-dim, H200 only)
-    "tiiuae/falcon-40b":             80.0,
-    "Qwen/Qwen2.5-72B":             144.0,
-    "meta-llama/Llama-3.1-70B":     140.0,
-    # Legacy keys (kept for backward compat)
-    "gpt2":                           0.5,
-    "gpt2-xl":                        6.3,
-}
 
 
 def run_model(model_id: str, concepts: list[str], args, device_override: str | None = None) -> None:
@@ -380,7 +263,7 @@ def run_model(model_id: str, concepts: list[str], args, device_override: str | N
     device = device_override or get_device(args.device)
     dtype = _resolve_dtype(getattr(args, "dtype", None), device)
     load_8bit = getattr(args, "load_8bit", False)
-    load_4bit = getattr(args, "load_4bit", False) or (model_id in MODEL_REQUIRES_4BIT)
+    load_4bit = getattr(args, "load_4bit", False) or (requires_quantization(model_id) == "4bit")
 
     # Flush any stale GPU state (e.g. from a crashed prior run or loop iteration)
     if device.startswith("cuda"):
@@ -404,7 +287,7 @@ def run_model(model_id: str, concepts: list[str], args, device_override: str | N
 
     # Models >20 GB bf16 span both L4s via pipeline parallelism (device_map="auto").
     # Input tensors go to cuda:0 (where the embedding layer always lands).
-    model_vram = MODEL_VRAM_GB.get(model_id, 0)
+    model_vram = _registry_vram(model_id)
     n_gpus = torch.cuda.device_count() if device.startswith("cuda") else 1
     use_multi_gpu = (not load_8bit and not load_4bit) and model_vram > 20.0 and n_gpus > 1
 
@@ -538,7 +421,7 @@ def run_parallel(models: list[str], concepts: list[str], args) -> None:
     log.info("Parallel mode: %d GPUs detected, running 2 models concurrently", n_gpus)
 
     # Sort by VRAM: pair largest with smallest for balanced GPU load
-    sorted_models = sorted(models, key=lambda m: MODEL_VRAM_GB.get(m, 0), reverse=True)
+    sorted_models = sorted(models, key=lambda m: _registry_vram(m), reverse=True)
     pairs = []
     remaining = list(sorted_models)
     while len(remaining) >= 2:
@@ -606,7 +489,7 @@ def parse_args():
                         help="Load model in 8-bit quantization via bitsandbytes (halves VRAM)")
     parser.add_argument("--load-4bit", action="store_true",
                         help="Load model in 4-bit nf4 quantization (bitsandbytes). "
-                             "Auto-enabled for models in MODEL_REQUIRES_4BIT.")
+                             "Auto-enabled for models with quantization=4bit in models.yaml.")
     parser.add_argument("--parallel", action="store_true",
                         help="Run 2 small models concurrently on separate GPUs. "
                              "Do NOT use with Cluster E (those span both GPUs).")
