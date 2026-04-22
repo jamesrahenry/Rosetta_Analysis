@@ -32,7 +32,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parent.parent / "viz"))
 from viz_style import FAMILY_MAP, THEME
 
 log = logging.getLogger(__name__)

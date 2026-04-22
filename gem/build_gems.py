@@ -80,7 +80,7 @@ def build_model_gems(
 
     Returns dict of {concept: diagnostics_dict}.
     """
-    from geometric_evolution_map.gem import (
+    from rosetta_tools.gem import (
         build_concept_gem, save_gem, validate_gem_node,
         gem_diagnostics,
     )

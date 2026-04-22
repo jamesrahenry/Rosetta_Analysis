@@ -1,0 +1,49 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# Results (rsync-only, not git)
+results/
+*.json
+*.npy
+*.npz
+*.pkl
+*.pt
+*.safetensors
+
+# Logs
+*.log
+logs/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# MLflow
+mlruns/
+mlflow.db
+
+# Exceptions — keep config/job files that happen to be JSON
+!jobs/*.json

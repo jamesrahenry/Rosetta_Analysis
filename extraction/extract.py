@@ -1,61 +1,42 @@
 """
-extract.py — Multi-model activation extraction for PRH alignment experiments.
+extract.py — Multi-model activation extraction for Rosetta Papers 1–3.
 
 Extracts CAZ metrics and dominant concept vectors for cross-architecture
-comparison. The extraction schema is identical to caz_scaling/src/extract.py —
-results from both experiments can be loaded with the same rosetta_tools.reporting
-functions.
+comparison. Results land in ~/rosetta_data/models/{model_slug}/ (no timestamps;
+one canonical directory per model).
 
-The key difference from the CAZ scaling experiment: here we run architecturally
-diverse models, not a controlled scale ladder. The question is not *where* the
-CAZ peak falls, but whether the *dominant vectors* at those peaks align after
-Procrustes rotation.
+Data: Rosetta_Concept_Pairs/pairs/raw/v1/ via load_concept_pairs().
+      N=200 pairs per concept (clamped to available), train split only.
 
-Target architectures
---------------------
-These represent the major decoder-only families present in the literature:
-
-    GPT-2 family         gpt2, gpt2-xl             (OpenAI, learned positions)
-    Pythia family        pythia-160m, pythia-410m   (EleutherAI, RoPE, The Pile)
-    GPT-Neo family       gpt-neo-125m               (EleutherAI, ALiBi)
-    OPT family           facebook/opt-125m           (Meta, learned positions)
-    Llama family         meta-llama/Llama-3.1-8B    (Meta, RoPE, GQA, SwiGLU)
-    Mistral family       mistralai/Mistral-7B-v0.3  (Mistral AI, sliding window)
-
-Frontier models (require --frontier flag and sufficient VRAM):
-
-    Llama family         meta-llama/Llama-3.1-70B   (Meta, RoPE, GQA, SwiGLU, 80 layers)
-    Qwen family          Qwen/Qwen2.5-72B           (Alibaba, RoPE, GQA, SwiGLU, 80 layers)
-    Falcon family        tiiuae/falcon-40b           (TII, RoPE, multi-query attention, 60 layers)
+Clusters (zero-PCA dim groups for Procrustes alignment):
+    A — 768-dim     GPT-2, GPT-Neo, Pythia-160m, OPT-125m
+    B — 2048-dim    Pythia-1b, OPT-1.3b, Llama-3.2-1B, Qwen2.5-3B
+    C — 4096-dim    Pythia-6.9b, OPT-6.7b, Llama-3.1-8B (+Instruct), Mistral-7B, Mixtral-8x7B
+    D — 3584-dim    Qwen2.5-7B, Gemma-2-9b
+    E — 5120-dim    Pythia-12b, Qwen2.5-14B, Qwen2.5-32B
+    G — 5376-dim    Gemma4-27B MoE, Gemma4-31B dense  [gated, needs --load-4bit]
+    F — 8192-dim    Falcon-40b, Qwen2.5-72B, Llama-3.1-70B  [H200 only]
 
 Usage
 -----
     # Single model
-    python src/extract.py --model gpt2
+    python extraction/extract.py --model gpt2
 
-    # All cross-architecture models (proxy scale)
-    python src/extract.py --all
+    # All L4-runnable clusters (A–E+G + scale ladder)
+    python extraction/extract.py --prh-proxy
 
-    # All cross-architecture models including frontier (requires H100/H200)
-    python src/extract.py --all --include-frontier --load-8bit
+    # Single named cluster
+    python extraction/extract.py --prh-cluster C
 
-    # Frontier models only
-    python src/extract.py --frontier --load-8bit
+    # Models requiring 4-bit (auto-detected; flag also available manually)
+    python extraction/extract.py --prh-cluster G
+    python extraction/extract.py --model mistralai/Mixtral-8x7B-v0.1
 
-    # Single frontier model
-    python src/extract.py --model meta-llama/Llama-3.1-70B --load-8bit
+    # Frontier models (H200)
+    python extraction/extract.py --prh-frontier --load-8bit
 
-    # Specific concepts and model
-    python src/extract.py --model meta-llama/Llama-3.1-8B --concepts credibility negation
-
-    # Force bfloat16 (recommended for L4/A10 class GPUs)
-    python src/extract.py --all --dtype bfloat16
-
-    # Parallel mode: run 2 models on 2 GPUs simultaneously
-    python src/extract.py --all --parallel
-
-    # Validate only
-    python src/extract.py --model gpt2 --validate-only
+    # Parallel mode (2 small models on 2 GPUs simultaneously)
+    python extraction/extract.py --prh-cluster A --parallel
 """
 
 from __future__ import annotations
@@ -80,7 +61,9 @@ from rosetta_tools.gpu_utils import (
 )
 from rosetta_tools.extraction import extract_layer_activations
 from rosetta_tools.caz import compute_separation, compute_coherence, compute_velocity
-from rosetta_tools.dataset import load_pairs, texts_by_label, validate_dataset
+from rosetta_tools.dataset import (
+    load_concept_pairs, texts_by_label, CAZ_PRH_CONCEPTS,
+)
 from rosetta_tools.tracking import start_run, log_concept, end_run
 
 logging.basicConfig(
@@ -114,12 +97,14 @@ PRH_CLUSTER_B = [
     "Qwen/Qwen2.5-3B",                # Qwen2, GQA+SwiGLU, 3B
 ]
 
-# Cluster C — 4096-dim  (single L4, bf16, ~13–16 GB each)
+# Cluster C — 4096-dim  (single L4, bf16 ~13–16 GB; Mixtral needs --load-4bit)
 PRH_CLUSTER_C = [
-    "EleutherAI/pythia-6.9b",         # NeoX, RoPE, 6.9B — redundant encoding
-    "facebook/opt-6.7b",              # OPT, MHA, 6.7B  — redundant encoding
-    "meta-llama/Llama-3.1-8B",        # Llama3, GQA+SwiGLU, 8B — sparse  [gated]
-    "mistralai/Mistral-7B-v0.3",      # Mistral, GQA+SWA, 7B — sparse
+    "EleutherAI/pythia-6.9b",         # NeoX, RoPE, 6.9B — MHA
+    "facebook/opt-6.7b",              # OPT, MHA, 6.7B
+    "meta-llama/Llama-3.1-8B",        # Llama3, GQA+SwiGLU, 8B  [gated]
+    "meta-llama/Llama-3.1-8B-Instruct", # Llama3 instruct variant  [gated]
+    "mistralai/Mistral-7B-v0.3",      # Mistral, GQA+SWA, 7B
+    "mistralai/Mixtral-8x7B-v0.1",    # Mixtral MoE, GQA, 8×7B  [needs --load-4bit]
 ]
 
 # Cluster D — 3584-dim  (single L4, bf16, ~14–18 GB each)
@@ -128,10 +113,17 @@ PRH_CLUSTER_D = [
     "google/gemma-2-9b",              # Gemma2, sliding/global+GQA, 9B
 ]
 
-# Cluster E — 5120-dim  (both L4s via device_map="auto", bf16, ~24–28 GB each)
+# Cluster E — 5120-dim  (both L4s via device_map="auto" for bf16; 32B needs --load-4bit)
 PRH_CLUSTER_E = [
-    "EleutherAI/pythia-12b",          # NeoX, RoPE, 12B — redundant encoding
-    "Qwen/Qwen2.5-14B",               # Qwen2, GQA+SwiGLU, 14B — sparse
+    "EleutherAI/pythia-12b",          # NeoX, RoPE, 12B
+    "Qwen/Qwen2.5-14B",               # Qwen2, GQA+SwiGLU, 14B
+    "Qwen/Qwen2.5-32B",               # Qwen2, GQA+SwiGLU, 32B  [needs --load-4bit]
+]
+
+# Cluster G — 5376-dim  (Gemma 4; all need --load-4bit, ~15 GB at nf4)
+PRH_CLUSTER_G = [
+    "google/gemma-4-26B-A4B",         # Gemma4 MoE, 26B total / 4B active, 48 layers  [gated]
+    "google/gemma-4-31B",             # Gemma4 dense, 31B, 60 layers  [gated]
 ]
 
 # Scale ladder — cross-dim, within-family only (for convergence-vs-scale plots)
@@ -144,10 +136,10 @@ PRH_SCALE_LADDER = [
     "Qwen/Qwen2.5-1.5B",              # 1536-dim
 ]
 
-# All proxy models (L4-runnable): clusters A-E + scale ladder
+# All proxy models (L4-runnable): clusters A-E+G + scale ladder
 PRH_PROXY_MODELS = (
     PRH_CLUSTER_A + PRH_CLUSTER_B + PRH_CLUSTER_C
-    + PRH_CLUSTER_D + PRH_CLUSTER_E + PRH_SCALE_LADDER
+    + PRH_CLUSTER_D + PRH_CLUSTER_E + PRH_CLUSTER_G + PRH_SCALE_LADDER
 )
 
 # Cluster F — 8192-dim  (H200 only, 8-bit for 70B; Falcon fits bf16)
@@ -171,19 +163,18 @@ CROSS_ARCH_MODELS = [
 
 FRONTIER_MODELS = PRH_FRONTIER_MODELS
 
-DATA_ROOT = Path(__file__).parent.parent / "data"
+DEFAULT_CONCEPTS = CAZ_PRH_CONCEPTS  # 17 concepts from canonical dataset
 
-CONCEPT_DATASETS: dict[str, str] = {
-    "credibility":    "credibility_pairs.jsonl",
-    "negation":       "negation_pairs.jsonl",
-    "sentiment":      "sentiment_pairs.jsonl",
-    "causation":      "causation_pairs.jsonl",
-    "certainty":      "certainty_pairs.jsonl",
-    "moral_valence":  "moral_valence_pairs.jsonl",
-    "temporal_order": "temporal_order_pairs.jsonl",
+# Models that require 4-bit quantization (bf16 would exceed 2×L4 combined VRAM)
+MODEL_REQUIRES_4BIT = {
+    "mistralai/Mixtral-8x7B-v0.1",
+    "Qwen/Qwen2.5-32B",
+    "google/gemma-4-26B-A4B",
+    "google/gemma-4-31B",
 }
 
-DEFAULT_CONCEPTS = list(CONCEPT_DATASETS.keys())
+# Canonical results root — all extractions land here, no timestamps
+ROSETTA_DATA_ROOT = Path.home() / "rosetta_data"
 
 
 # ---------------------------------------------------------------------------
@@ -267,10 +258,7 @@ def extract_layer_wise_metrics(model, tokenizer, pos_texts, neg_texts, device, b
 
 
 def extract_concept(concept, model, tokenizer, device, n_pairs, batch_size, out_dir):
-    dataset_path = DATA_ROOT / CONCEPT_DATASETS[concept]
-    pairs = load_pairs(dataset_path)
-    if n_pairs and len(pairs) > n_pairs:
-        pairs = pairs[:n_pairs]
+    pairs = load_concept_pairs(concept, n=n_pairs or 200)
 
     pos_texts, neg_texts = texts_by_label(pairs)
     t0 = time.time()
@@ -348,13 +336,19 @@ MODEL_VRAM_GB = {
     "EleutherAI/pythia-6.9b":        14.0,
     "facebook/opt-6.7b":             13.4,
     "meta-llama/Llama-3.1-8B":       16.0,
+    "meta-llama/Llama-3.1-8B-Instruct": 16.0,
     "mistralai/Mistral-7B-v0.3":     14.5,
+    "mistralai/Mixtral-8x7B-v0.1":   93.0,   # bf16; run with --load-4bit (~24 GB nf4)
     # Cluster D (3584-dim)
     "Qwen/Qwen2.5-7B":               14.5,
     "google/gemma-2-9b":             18.5,
     # Cluster E (5120-dim) — need device_map="auto" across 2x L4
     "EleutherAI/pythia-12b":         24.0,
     "Qwen/Qwen2.5-14B":              28.0,
+    "Qwen/Qwen2.5-32B":              64.0,   # bf16; run with --load-4bit (~16 GB nf4)
+    # Cluster G (5376-dim) — Gemma 4; always 4-bit
+    "google/gemma-4-26B-A4B":        55.0,   # bf16; ~15 GB nf4
+    "google/gemma-4-31B":            62.0,   # bf16; ~16 GB nf4
     # Scale ladder
     "EleutherAI/pythia-70m":          0.2,
     "EleutherAI/pythia-410m":         1.0,
@@ -374,22 +368,19 @@ MODEL_VRAM_GB = {
 def run_model(model_id: str, concepts: list[str], args, device_override: str | None = None) -> None:
     log.info("=== %s ===", model_id)
 
-    for concept in concepts:
-        issues = validate_dataset(DATA_ROOT / CONCEPT_DATASETS[concept])
-        if issues:
-            log.warning("Dataset issues for %s: %s", concept, issues)
-
     if args.validate_only:
+        log.info("  validate_only — skipping extraction")
         return
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     model_slug = model_id.replace("/", "_").replace("-", "_")
-    out_dir = Path("results") / f"xarch_{model_slug}_{timestamp}"
+    out_dir = ROSETTA_DATA_ROOT / "models" / model_slug
     out_dir.mkdir(parents=True, exist_ok=True)
 
     device = device_override or get_device(args.device)
     dtype = _resolve_dtype(getattr(args, "dtype", None), device)
     load_8bit = getattr(args, "load_8bit", False)
+    load_4bit = getattr(args, "load_4bit", False) or (model_id in MODEL_REQUIRES_4BIT)
 
     # Flush any stale GPU state (e.g. from a crashed prior run or loop iteration)
     if device.startswith("cuda"):
@@ -399,11 +390,12 @@ def run_model(model_id: str, concepts: list[str], args, device_override: str | N
 
     log_device_info(device, dtype)
 
-    mlflow_run = start_run("semantic_convergence", model_id, {
+    quant = "4-bit" if load_4bit else ("8-bit" if load_8bit else "none")
+    mlflow_run = start_run("rosetta_analysis", model_id, {
         "device": device,
-        "dtype": "int8 (bitsandbytes)" if load_8bit else str(dtype),
-        "quantization": "8-bit" if load_8bit else "none",
-        "n_pairs": args.n_pairs or 100,
+        "dtype": "nf4 (bitsandbytes)" if load_4bit else ("int8 (bitsandbytes)" if load_8bit else str(dtype)),
+        "quantization": quant,
+        "n_pairs": args.n_pairs or 200,
         "batch_size": args.batch_size,
     })
 
@@ -414,12 +406,24 @@ def run_model(model_id: str, concepts: list[str], args, device_override: str | N
     # Input tensors go to cuda:0 (where the embedding layer always lands).
     model_vram = MODEL_VRAM_GB.get(model_id, 0)
     n_gpus = torch.cuda.device_count() if device.startswith("cuda") else 1
-    use_multi_gpu = (not load_8bit) and model_vram > 20.0 and n_gpus > 1
+    use_multi_gpu = (not load_8bit and not load_4bit) and model_vram > 20.0 and n_gpus > 1
 
-    if use_multi_gpu:
+    if load_4bit:
+        log.info("4-bit nf4 quantization (model_id=%s)", model_id)
+    elif use_multi_gpu:
         log.info(
             "Large model (%.0f GB bf16): device_map='auto' across %d GPUs",
             model_vram, n_gpus,
+        )
+
+    load_kwargs: dict = {}
+    if load_4bit:
+        from transformers import BitsAndBytesConfig
+        load_kwargs["quantization_config"] = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_compute_dtype=torch.bfloat16,
+            bnb_4bit_use_double_quant=True,
         )
 
     model = load_model_with_retry(
@@ -427,12 +431,13 @@ def run_model(model_id: str, concepts: list[str], args, device_override: str | N
         model_id,
         dtype=dtype,
         device=device,
-        device_map="auto" if (load_8bit or use_multi_gpu) else device,
+        device_map="auto" if (load_8bit or load_4bit or use_multi_gpu) else device,
         load_in_8bit=load_8bit,
+        **load_kwargs,
     )
 
     # Resolve input device: first parameter lives on embedding layer's GPU.
-    if load_8bit or use_multi_gpu:
+    if load_8bit or load_4bit or use_multi_gpu:
         device = str(next(model.parameters()).device)
         log.info("  Model input device: %s", device)
 
@@ -450,7 +455,7 @@ def run_model(model_id: str, concepts: list[str], args, device_override: str | N
             model=model,
             tokenizer=tokenizer,
             device=device,
-            n_pairs=args.n_pairs or 100,
+            n_pairs=args.n_pairs or 200,
             batch_size=batch,
             out_dir=out_dir,
         )
@@ -468,16 +473,29 @@ def run_model(model_id: str, concepts: list[str], args, device_override: str | N
     index = {
         "model_id": model_id,
         "concepts": concepts,
-        "n_pairs_cap": args.n_pairs,
+        "n_pairs_cap": args.n_pairs or 200,
         "device": device,
-        "dtype": "int8 (bitsandbytes)" if load_8bit else str(dtype),
-        "quantization": "8-bit" if load_8bit else "none",
+        "dtype": "nf4 (bitsandbytes)" if load_4bit else ("int8 (bitsandbytes)" if load_8bit else str(dtype)),
+        "quantization": quant,
         "total_seconds": round(total_elapsed, 1),
         "timestamp": timestamp,
         "results": run_summary,
     }
     with (out_dir / "run_summary.json").open("w") as f:
         json.dump(index, f, indent=2)
+
+    # Write provenance metadata alongside results
+    metadata = {
+        "model_id": model_id,
+        "extracted_at": timestamp,
+        "quantization": quant,
+        "n_pairs_cap": args.n_pairs or 200,
+        "dataset": "Rosetta_Concept_Pairs/pairs/raw/v1",
+        "split": "train",
+        "concepts": concepts,
+    }
+    with (out_dir / "metadata.json").open("w") as f:
+        json.dump(metadata, f, indent=2)
 
     end_run(mlflow_run, out_dir)
     log.info("Done: %s  (%.1fs)  → %s", model_id, total_elapsed, out_dir)
@@ -558,6 +576,7 @@ _PRH_CLUSTER_MAP = {
     "D": PRH_CLUSTER_D,
     "E": PRH_CLUSTER_E,
     "F": PRH_FRONTIER_MODELS,
+    "G": PRH_CLUSTER_G,
     "scale": PRH_SCALE_LADDER,
 }
 
@@ -574,17 +593,20 @@ def parse_args():
     group.add_argument("--prh-frontier", action="store_true",
                        help="PRH paper: 8192-dim frontier cluster (H200 only)")
     group.add_argument("--prh-cluster", choices=list(_PRH_CLUSTER_MAP.keys()),
-                       help="PRH paper: single named cluster (A/B/C/D/E/F/scale)")
+                       help="PRH paper: single named cluster (A/B/C/D/E/F/G/scale)")
     parser.add_argument("--include-frontier", action="store_true",
                         help="With --all, also include frontier models")
     parser.add_argument("--concepts", nargs="+", default=None)
-    parser.add_argument("--n-pairs", type=int, default=100)
+    parser.add_argument("--n-pairs", type=int, default=200)
     parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--device", choices=["cuda", "cpu", "auto"], default="auto")
     parser.add_argument("--dtype", choices=["auto", "bfloat16", "float32"], default="auto",
                         help="Override model dtype (default: auto-detect from hardware)")
     parser.add_argument("--load-8bit", action="store_true",
                         help="Load model in 8-bit quantization via bitsandbytes (halves VRAM)")
+    parser.add_argument("--load-4bit", action="store_true",
+                        help="Load model in 4-bit nf4 quantization (bitsandbytes). "
+                             "Auto-enabled for models in MODEL_REQUIRES_4BIT.")
     parser.add_argument("--parallel", action="store_true",
                         help="Run 2 small models concurrently on separate GPUs. "
                              "Do NOT use with Cluster E (those span both GPUs).")
@@ -599,8 +621,9 @@ def parse_args():
 
 def main():
     args = parse_args()
+    from rosetta_tools.dataset import ALL_CONCEPTS
     concepts = args.concepts or DEFAULT_CONCEPTS
-    unknown = [c for c in concepts if c not in CONCEPT_DATASETS]
+    unknown = [c for c in concepts if c not in ALL_CONCEPTS]
     if unknown:
         log.error("Unknown concepts: %s", unknown)
         sys.exit(1)

@@ -30,7 +30,7 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 import numpy as np
 
-sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parent.parent / "viz"))
 from viz_style import FAMILY_COLORS, FAMILY_MAP, THEME, concept_color, CONCEPTS
 
 log = logging.getLogger(__name__)

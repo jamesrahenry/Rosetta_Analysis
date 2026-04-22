@@ -51,7 +51,7 @@ from rosetta_tools.gpu_utils import (
     release_model, purge_hf_cache, vram_stats,
     load_model_with_retry, NumpyJSONEncoder,
 )
-from geometric_evolution_map.gem import load_gem, ConceptGEM, GEMNode
+from rosetta_tools.gem import load_gem, ConceptGEM, GEMNode
 
 logging.basicConfig(
     level=logging.INFO,

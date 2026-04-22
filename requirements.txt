@@ -1,0 +1,18 @@
+# Core
+rosetta-tools>=0.1.0
+torch>=2.2.0
+transformers>=4.40.0
+numpy>=1.24.0
+scipy>=1.11.0
+matplotlib>=3.8.0
+pandas>=2.0.0
+
+# Quantization (required for 4-bit/8-bit models)
+bitsandbytes>=0.43.0
+accelerate>=0.27.0
+
+# Alignment / stats
+scikit-learn>=1.4.0
+
+# Tracking (optional)
+mlflow>=2.10.0

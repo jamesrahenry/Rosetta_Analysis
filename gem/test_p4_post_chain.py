@@ -35,8 +35,6 @@ from dataclasses import dataclass
 import numpy as np
 from scipy import stats
 
-# Add rosetta_tools to path
-sys.path.insert(0, str(Path(__file__).parent.parent.parent / "rosetta_tools"))
 from rosetta_tools.caz import find_caz_regions_scored, LayerMetrics
 
 

@@ -22,8 +22,6 @@ import logging
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "rosetta_tools"))
-
 from rosetta_tools.caz import find_caz_regions_scored, LayerMetrics, final_global_attention_layer
 from rosetta_tools.models import attention_paradigm_of
 
