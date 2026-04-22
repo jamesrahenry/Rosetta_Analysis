@@ -49,10 +49,10 @@ cd ~/rosetta_analysis && python extraction/extract.py --model Qwen/Qwen2.5-14B -
 cd ~/rosetta_analysis && python extraction/extract.py --model Qwen/Qwen2.5-32B --batch-size 4
 
 # Phase 9 — Cluster G: Gemma 4  (~90 min)
-# gemma-4-12b-it: 24 GB — device_map=auto across both L4s
-cd ~/rosetta_analysis && python extraction/extract.py --model google/gemma-4-12b-it --dtype bfloat16 --batch-size 4
-# gemma-4-27b-it: MoE, 4-bit nf4, ~15 GB
-cd ~/rosetta_analysis && python extraction/extract.py --model google/gemma-4-27b-it --batch-size 4
+# gemma-4-31B-it: dense 31B, 4-bit nf4, ~16 GB
+cd ~/rosetta_analysis && python extraction/extract.py --model google/gemma-4-31B-it --batch-size 4
+# gemma-4-26B-A4B-it: MoE 26B/4B active, 4-bit nf4, ~15 GB
+cd ~/rosetta_analysis && python extraction/extract.py --model google/gemma-4-26B-A4B-it --batch-size 4
 
 # ---
 # Extraction complete. Run alignment analysis on the fresh results.
