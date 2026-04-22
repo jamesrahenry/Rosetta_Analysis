@@ -332,10 +332,21 @@ def run_model(model_id: str, args, rng: np.random.Generator) -> None:
 def aggregate(out_dir: Path) -> None:
     records = []
     for f in sorted(out_dir.glob("*_adaptive_width.json")):
+        if f.name == "gem_adaptive_width.json":
+            continue
         raw = json.loads(f.read_text())
-        for r in raw.get("results", []):
-            if "/" in r.get("model_id", ""):
+        batch = raw if isinstance(raw, list) else raw.get("results", [])
+        for r in batch:
+            if isinstance(r, dict) and "/" in r.get("model_id", ""):
                 records.append(r)
+    # Deduplicate by (model_id, concept)
+    seen, deduped = set(), []
+    for r in records:
+        key = (r["model_id"], r["concept"])
+        if key not in seen:
+            seen.add(key)
+            deduped.append(r)
+    records = deduped
 
     if not records:
         log.warning("No results to aggregate")
@@ -345,6 +356,11 @@ def aggregate(out_dir: Path) -> None:
     deltas = [r["delta_vs_fixed3_pp"] for r in records]
     ratios = [r["ratio_vs_null"] for r in records]
     sig = sum(1 for r in records if r["p_value"] < 0.05)
+
+    # Migrate old records written before the rule field existed
+    for r in records:
+        if "rule" not in r:
+            r["rule"] = "near-final" if r.get("rel_depth", 0) > 0.85 else "default"
 
     # Split by rule triggered
     near_final = [r for r in records if r["rule"] == "near-final"]
