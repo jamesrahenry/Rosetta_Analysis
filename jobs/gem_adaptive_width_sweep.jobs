@@ -1,71 +1,60 @@
-# GEM adaptive width — full base-model sweep
+# GEM adaptive width — full pipeline sweep (extract → build_gems → ablate)
 #
-# Validates near-final rule (HL/N > 0.85 → w=1) across all 25 base models.
-# Gemma-2-2b and OPT-6.7b already done; script skips them automatically.
+# Validates near-final rule (HL/N > 0.85 → w=1) across enabled base models.
+# Each job runs all three stages for one model: extract activations, build GEMs,
+# then run adaptive-width ablation. All output paths are absolute (~/rosetta_data).
 #
-# Runs from ~/rosetta_data so RESULTS_ROOT resolves to existing GEM data.
-# Script pulled fresh from ~/rosetta_analysis before each family batch.
+# Model set: enabled=true, gated=false, quantization=null, no instruct tag
+#   Scale:     pythia-70m, pythia-410m, pythia-2.8b, Qwen2.5-0.5B, Qwen2.5-1.5B
+#   Cluster A: gpt2, pythia-160m
+#   Cluster B: pythia-1b, Qwen2.5-3B
+#   Cluster C: pythia-6.9b, opt-6.7b, Mistral-7B-v0.3
+#   Cluster D: Qwen2.5-7B, gemma-2-9b
+#   Cluster E: pythia-12b, Qwen2.5-14B  (device_map=auto, 2x L4)
 #
-# Ordered small-to-large within families; barrier between families to avoid
-# hammering HF with back-to-back large-model downloads.
+# Ordered small-to-large within groups; barriers between groups to avoid
+# hammering HF with concurrent large-model downloads.
 #
-# Setup: ensure rosetta_data exists, clone rosetta_analysis if needed, then run pythia-70m
-cd ~ && mkdir -p ~/rosetta_data && [ -d rosetta_analysis ] || git clone git@github.com:jamesrahenry/Rosetta_Analysis.git rosetta_analysis && git -C ~/rosetta_analysis pull && cd ~/rosetta_data && python ~/rosetta_analysis/gem/ablate_gem_adaptive_width.py --model EleutherAI/pythia-70m
-# Pythia-160m
-cd ~/rosetta_data && git -C ~/rosetta_analysis pull && python ~/rosetta_analysis/gem/ablate_gem_adaptive_width.py --model EleutherAI/pythia-160m
-# Pythia-410m
-cd ~/rosetta_data && python ~/rosetta_analysis/gem/ablate_gem_adaptive_width.py --model EleutherAI/pythia-410m
-# Pythia-1b
-cd ~/rosetta_data && python ~/rosetta_analysis/gem/ablate_gem_adaptive_width.py --model EleutherAI/pythia-1b
-# Pythia-1.4b
-cd ~/rosetta_data && python ~/rosetta_analysis/gem/ablate_gem_adaptive_width.py --model EleutherAI/pythia-1.4b
-# Pythia-2.8b
-cd ~/rosetta_data && python ~/rosetta_analysis/gem/ablate_gem_adaptive_width.py --model EleutherAI/pythia-2.8b
-# Pythia-6.9b
-cd ~/rosetta_data && python ~/rosetta_analysis/gem/ablate_gem_adaptive_width.py --model EleutherAI/pythia-6.9b
+# Setup: ensure rosetta_analysis is cloned (symlink expected at ~/rosetta_analysis)
+# then start scale ladder (tiny models, fast warmup)
+#
+# Scale ladder — pythia-70m
+git -C ~/rosetta_analysis pull && python ~/rosetta_analysis/extraction/extract.py --model EleutherAI/pythia-70m && python ~/rosetta_analysis/gem/build_gems.py --model EleutherAI/pythia-70m && python ~/rosetta_analysis/gem/ablate_gem_adaptive_width.py --model EleutherAI/pythia-70m
+# Scale ladder — pythia-410m
+python ~/rosetta_analysis/extraction/extract.py --model EleutherAI/pythia-410m && python ~/rosetta_analysis/gem/build_gems.py --model EleutherAI/pythia-410m && python ~/rosetta_analysis/gem/ablate_gem_adaptive_width.py --model EleutherAI/pythia-410m
+# Scale ladder — pythia-2.8b
+python ~/rosetta_analysis/extraction/extract.py --model EleutherAI/pythia-2.8b && python ~/rosetta_analysis/gem/build_gems.py --model EleutherAI/pythia-2.8b && python ~/rosetta_analysis/gem/ablate_gem_adaptive_width.py --model EleutherAI/pythia-2.8b
+# Scale ladder — Qwen2.5-0.5B
+python ~/rosetta_analysis/extraction/extract.py --model Qwen/Qwen2.5-0.5B && python ~/rosetta_analysis/gem/build_gems.py --model Qwen/Qwen2.5-0.5B && python ~/rosetta_analysis/gem/ablate_gem_adaptive_width.py --model Qwen/Qwen2.5-0.5B
+# Scale ladder — Qwen2.5-1.5B
+python ~/rosetta_analysis/extraction/extract.py --model Qwen/Qwen2.5-1.5B && python ~/rosetta_analysis/gem/build_gems.py --model Qwen/Qwen2.5-1.5B && python ~/rosetta_analysis/gem/ablate_gem_adaptive_width.py --model Qwen/Qwen2.5-1.5B
 # ---
-# GPT-2 family (tiny, fast — all 4 in one barrier group)
-cd ~/rosetta_data && git -C ~/rosetta_analysis pull && python ~/rosetta_analysis/gem/ablate_gem_adaptive_width.py --model openai-community/gpt2
-# GPT-2-medium
-cd ~/rosetta_data && python ~/rosetta_analysis/gem/ablate_gem_adaptive_width.py --model openai-community/gpt2-medium
-# GPT-2-large
-cd ~/rosetta_data && python ~/rosetta_analysis/gem/ablate_gem_adaptive_width.py --model openai-community/gpt2-large
-# GPT-2-XL
-cd ~/rosetta_data && python ~/rosetta_analysis/gem/ablate_gem_adaptive_width.py --model openai-community/gpt2-xl
+# Cluster A — gpt2
+git -C ~/rosetta_analysis pull && python ~/rosetta_analysis/extraction/extract.py --model openai-community/gpt2 && python ~/rosetta_analysis/gem/build_gems.py --model openai-community/gpt2 && python ~/rosetta_analysis/gem/ablate_gem_adaptive_width.py --model openai-community/gpt2
+# Cluster A — pythia-160m
+python ~/rosetta_analysis/extraction/extract.py --model EleutherAI/pythia-160m && python ~/rosetta_analysis/gem/build_gems.py --model EleutherAI/pythia-160m && python ~/rosetta_analysis/gem/ablate_gem_adaptive_width.py --model EleutherAI/pythia-160m
 # ---
-# OPT family (already have 6.7b — skip is automatic)
-cd ~/rosetta_data && git -C ~/rosetta_analysis pull && python ~/rosetta_analysis/gem/ablate_gem_adaptive_width.py --model facebook/opt-125m
-# OPT-1.3b
-cd ~/rosetta_data && python ~/rosetta_analysis/gem/ablate_gem_adaptive_width.py --model facebook/opt-1.3b
-# OPT-2.7b
-cd ~/rosetta_data && python ~/rosetta_analysis/gem/ablate_gem_adaptive_width.py --model facebook/opt-2.7b
-# OPT-6.7b (will skip — already done)
-cd ~/rosetta_data && python ~/rosetta_analysis/gem/ablate_gem_adaptive_width.py --model facebook/opt-6.7b
+# Cluster B — pythia-1b
+git -C ~/rosetta_analysis pull && python ~/rosetta_analysis/extraction/extract.py --model EleutherAI/pythia-1b && python ~/rosetta_analysis/gem/build_gems.py --model EleutherAI/pythia-1b && python ~/rosetta_analysis/gem/ablate_gem_adaptive_width.py --model EleutherAI/pythia-1b
+# Cluster B — Qwen2.5-3B
+python ~/rosetta_analysis/extraction/extract.py --model Qwen/Qwen2.5-3B && python ~/rosetta_analysis/gem/build_gems.py --model Qwen/Qwen2.5-3B && python ~/rosetta_analysis/gem/ablate_gem_adaptive_width.py --model Qwen/Qwen2.5-3B
 # ---
-# Qwen family
-cd ~/rosetta_data && git -C ~/rosetta_analysis pull && python ~/rosetta_analysis/gem/ablate_gem_adaptive_width.py --model Qwen/Qwen2.5-0.5B
-# Qwen-1.5B
-cd ~/rosetta_data && python ~/rosetta_analysis/gem/ablate_gem_adaptive_width.py --model Qwen/Qwen2.5-1.5B
-# Qwen-3B
-cd ~/rosetta_data && python ~/rosetta_analysis/gem/ablate_gem_adaptive_width.py --model Qwen/Qwen2.5-3B
-# Qwen-7B
-cd ~/rosetta_data && python ~/rosetta_analysis/gem/ablate_gem_adaptive_width.py --model Qwen/Qwen2.5-7B
+# Cluster C — pythia-6.9b
+git -C ~/rosetta_analysis pull && python ~/rosetta_analysis/extraction/extract.py --model EleutherAI/pythia-6.9b && python ~/rosetta_analysis/gem/build_gems.py --model EleutherAI/pythia-6.9b && python ~/rosetta_analysis/gem/ablate_gem_adaptive_width.py --model EleutherAI/pythia-6.9b
+# Cluster C — opt-6.7b
+python ~/rosetta_analysis/extraction/extract.py --model facebook/opt-6.7b && python ~/rosetta_analysis/gem/build_gems.py --model facebook/opt-6.7b && python ~/rosetta_analysis/gem/ablate_gem_adaptive_width.py --model facebook/opt-6.7b
+# Cluster C — Mistral-7B-v0.3
+python ~/rosetta_analysis/extraction/extract.py --model mistralai/Mistral-7B-v0.3 && python ~/rosetta_analysis/gem/build_gems.py --model mistralai/Mistral-7B-v0.3 && python ~/rosetta_analysis/gem/ablate_gem_adaptive_width.py --model mistralai/Mistral-7B-v0.3
 # ---
-# Llama, Phi, Mistral (larger models — one per barrier)
-cd ~/rosetta_data && git -C ~/rosetta_analysis pull && python ~/rosetta_analysis/gem/ablate_gem_adaptive_width.py --model meta-llama/Llama-3.2-1B
-# Llama-3.2-3B
-cd ~/rosetta_data && python ~/rosetta_analysis/gem/ablate_gem_adaptive_width.py --model meta-llama/Llama-3.2-3B
+# Cluster D — Qwen2.5-7B
+git -C ~/rosetta_analysis pull && python ~/rosetta_analysis/extraction/extract.py --model Qwen/Qwen2.5-7B && python ~/rosetta_analysis/gem/build_gems.py --model Qwen/Qwen2.5-7B && python ~/rosetta_analysis/gem/ablate_gem_adaptive_width.py --model Qwen/Qwen2.5-7B
+# Cluster D — gemma-2-9b (device_map=auto, ~18GB, use batch_size=1)
+python ~/rosetta_analysis/extraction/extract.py --model google/gemma-2-9b && python ~/rosetta_analysis/gem/build_gems.py --model google/gemma-2-9b && python ~/rosetta_analysis/gem/ablate_gem_adaptive_width.py --model google/gemma-2-9b
 # ---
-# Phi-2
-cd ~/rosetta_data && git -C ~/rosetta_analysis pull && python ~/rosetta_analysis/gem/ablate_gem_adaptive_width.py --model microsoft/phi-2
+# Cluster E — pythia-12b (device_map=auto, 2x L4)
+git -C ~/rosetta_analysis pull && python ~/rosetta_analysis/extraction/extract.py --model EleutherAI/pythia-12b && python ~/rosetta_analysis/gem/build_gems.py --model EleutherAI/pythia-12b && python ~/rosetta_analysis/gem/ablate_gem_adaptive_width.py --model EleutherAI/pythia-12b
+# Cluster E — Qwen2.5-14B (device_map=auto, 2x L4)
+python ~/rosetta_analysis/extraction/extract.py --model Qwen/Qwen2.5-14B && python ~/rosetta_analysis/gem/build_gems.py --model Qwen/Qwen2.5-14B && python ~/rosetta_analysis/gem/ablate_gem_adaptive_width.py --model Qwen/Qwen2.5-14B
 # ---
-# Mistral-7B (largest in sweep — last)
-cd ~/rosetta_data && git -C ~/rosetta_analysis pull && python ~/rosetta_analysis/gem/ablate_gem_adaptive_width.py --model mistralai/Mistral-7B-v0.3
-# ---
-# Gemma-2-2b (will skip — already done) and Gemma-2-9b (~18GB, runs last)
-cd ~/rosetta_data && git -C ~/rosetta_analysis pull && python ~/rosetta_analysis/gem/ablate_gem_adaptive_width.py --model google/gemma-2-2b
-# Gemma-2-9b
-cd ~/rosetta_data && python ~/rosetta_analysis/gem/ablate_gem_adaptive_width.py --model google/gemma-2-9b
-# ---
-# Aggregate all results
-cd ~/rosetta_data && git -C ~/rosetta_analysis pull && python ~/rosetta_analysis/gem/ablate_gem_adaptive_width.py --aggregate-only
+# Aggregate all per-model results
+git -C ~/rosetta_analysis pull && python ~/rosetta_analysis/gem/ablate_gem_adaptive_width.py --aggregate-only

@@ -30,11 +30,10 @@ enabling direct comparison with the random-window-null sweep results.
 
 Usage
 -----
-    cd ~/caz_scaling
-    python src/ablate_gem_adaptive_width.py --model google/gemma-2-2b
-    python src/ablate_gem_adaptive_width.py --model facebook/opt-6.7b
-    python src/ablate_gem_adaptive_width.py --all
-    python src/ablate_gem_adaptive_width.py --all --n-windows 50
+    python rosetta_analysis/gem/ablate_gem_adaptive_width.py --model google/gemma-2-2b
+    python rosetta_analysis/gem/ablate_gem_adaptive_width.py --model facebook/opt-6.7b
+    python rosetta_analysis/gem/ablate_gem_adaptive_width.py --all
+    python rosetta_analysis/gem/ablate_gem_adaptive_width.py --all --n-windows 50
 
 Written: 2026-04-22 UTC
 """
@@ -67,9 +66,8 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-RESULTS_ROOT = Path("results")
-DATA_ROOT = Path(__file__).parent.parent / "data"
-OUT_DIR = RESULTS_ROOT / "gem_adaptive_width"
+MODELS_ROOT = Path.home() / "rosetta_data" / "models"
+OUT_DIR = Path.home() / "rosetta_data" / "results" / "gem_adaptive_width"
 
 N_WINDOWS_DEFAULT = 100
 N_PAIRS = 50
@@ -116,22 +114,22 @@ def width_to_window(handoff_layer: int, width: int, n_layers: int) -> list[int]:
 # Discovery (same as other GEM scripts)
 # ---------------------------------------------------------------------------
 
+def _model_slug(model_id: str) -> str:
+    return model_id.replace("/", "_").replace("-", "_")
+
+
 def find_extraction_dir(model_id: str) -> Path | None:
-    candidates = []
-    for d in RESULTS_ROOT.iterdir():
-        s = d / "run_summary.json"
-        if d.is_dir() and s.exists() and list(d.glob("gem_*.json")):
-            try:
-                if json.loads(s.read_text()).get("model_id") == model_id:
-                    candidates.append((d.stat().st_mtime, d))
-            except Exception:
-                continue
-    return max(candidates, key=lambda x: x[0])[1] if candidates else None
+    d = MODELS_ROOT / _model_slug(model_id)
+    if d.is_dir() and (d / "run_summary.json").exists() and list(d.glob("gem_*.json")):
+        return d
+    return None
 
 
 def discover_base_models() -> list[str]:
     models = set()
-    for d in RESULTS_ROOT.iterdir():
+    if not MODELS_ROOT.exists():
+        return sorted(models)
+    for d in MODELS_ROOT.iterdir():
         s = d / "run_summary.json"
         if s.exists():
             try:

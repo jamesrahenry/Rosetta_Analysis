@@ -11,7 +11,7 @@ Usage
     python src/build_gems.py --all
     python src/build_gems.py --all --phase 2 --k 3   # (Phase 2, not yet implemented)
 
-Outputs: results/<extraction_dir>/gem_<concept>.json
+Outputs: ~/rosetta_data/models/<model_slug>/gem_<concept>.json
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-RESULTS_ROOT = Path("results")
+MODELS_ROOT = Path.home() / "rosetta_data" / "models"
 
 CONCEPTS = [
     "causation", "certainty", "credibility", "moral_valence",
@@ -38,32 +38,32 @@ CONCEPTS = [
 
 
 # ---------------------------------------------------------------------------
-# Model / extraction discovery (shared pattern across caz_scaling scripts)
+# Model / extraction discovery
 # ---------------------------------------------------------------------------
 
+def _model_slug(model_id: str) -> str:
+    return model_id.replace("/", "_").replace("-", "_")
+
+
 def find_extraction_dir(model_id: str) -> Path | None:
-    candidates = []
-    for d in sorted(RESULTS_ROOT.iterdir(), reverse=True):
-        summary = d / "run_summary.json"
-        if d.is_dir() and summary.exists():
-            try:
-                if json.loads(summary.read_text()).get("model_id") == model_id:
-                    candidates.append(d)
-            except (json.JSONDecodeError, KeyError):
-                continue
-    return candidates[0] if candidates else None
+    d = MODELS_ROOT / _model_slug(model_id)
+    return d if d.is_dir() and (d / "run_summary.json").exists() else None
 
 
 def discover_models() -> list[str]:
-    models = set()
-    for d in RESULTS_ROOT.iterdir():
+    models = []
+    if not MODELS_ROOT.exists():
+        return models
+    for d in MODELS_ROOT.iterdir():
         s = d / "run_summary.json"
         if s.exists():
             try:
-                models.add(json.loads(s.read_text()).get("model_id", ""))
+                mid = json.loads(s.read_text()).get("model_id", "")
+                if mid:
+                    models.append(mid)
             except Exception:
                 pass
-    return sorted(m for m in models if m)
+    return sorted(models)
 
 
 # ---------------------------------------------------------------------------
