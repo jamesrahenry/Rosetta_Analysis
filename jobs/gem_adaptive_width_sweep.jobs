@@ -15,8 +15,12 @@
 # Ordered small-to-large within groups; barriers between groups to avoid
 # hammering HF with concurrent large-model downloads.
 #
-# Setup: generate validation split (one-time, idempotent) then run pythia-70m
-git -C ~/rosetta_analysis pull && python ~/Rosetta_Concept_Pairs/generate_split.py && python ~/rosetta_analysis/extraction/extract.py --model EleutherAI/pythia-70m && python ~/rosetta_analysis/gem/build_gems.py --model EleutherAI/pythia-70m && python ~/rosetta_analysis/gem/ablate_gem_adaptive_width.py --model EleutherAI/pythia-70m
+# Setup — generate validation split (one-time, idempotent); barrier ensures
+# all model jobs wait until this completes before starting extraction.
+git -C ~/rosetta_analysis pull && python ~/Rosetta_Concept_Pairs/generate_split.py
+# ---
+# Scale ladder — pythia-70m
+python ~/rosetta_analysis/extraction/extract.py --model EleutherAI/pythia-70m && python ~/rosetta_analysis/gem/build_gems.py --model EleutherAI/pythia-70m && python ~/rosetta_analysis/gem/ablate_gem_adaptive_width.py --model EleutherAI/pythia-70m
 # Scale ladder — pythia-410m
 python ~/rosetta_analysis/extraction/extract.py --model EleutherAI/pythia-410m && python ~/rosetta_analysis/gem/build_gems.py --model EleutherAI/pythia-410m && python ~/rosetta_analysis/gem/ablate_gem_adaptive_width.py --model EleutherAI/pythia-410m
 # Scale ladder — pythia-2.8b
