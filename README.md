@@ -3,8 +3,8 @@
 *Written: 2026-04-22 UTC*
 
 Analysis scripts for the **Rosetta** interpretability research program.
-Companion to [`rosetta_tools`](https://github.com/james-henry-git/rosetta_tools) (the shared library)
-and [`Rosetta_Concept_Pairs`](https://github.com/james-henry-git/Rosetta_Concept_Pairs) (the dataset).
+Companion to [`rosetta_tools`](https://github.com/jamesrahenry/rosetta_tools) (the shared library)
+and [`Rosetta_Concept_Pairs`](https://github.com/jamesrahenry/Rosetta_Concept_Pairs) (the dataset).
 
 ## Structure
 
@@ -20,15 +20,13 @@ jobs/         GPU job files for the Hopper/daemon queue
 ## Dependencies
 
 ```bash
-pip install rosetta-tools           # library: extraction, caz, gem, alignment, dataset
-pip install torch transformers      # model loading
-pip install numpy scipy matplotlib  # numerics and visualization
+pip install -r requirements.txt
 ```
 
 ## Data
 
 Concept pairs are loaded automatically from
-[`Rosetta_Concept_Pairs`](https://github.com/james-henry-git/Rosetta_Concept_Pairs)
+[`Rosetta_Concept_Pairs`](https://github.com/jamesrahenry/Rosetta_Concept_Pairs)
 via `ROSETTA_CONCEPTS_ROOT` or a repo-relative path search.
 
 Results write to `~/rosetta_data/` on the GPU box (rsync-only, not git).
