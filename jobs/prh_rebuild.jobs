@@ -1,0 +1,70 @@
+# PRH paper — full rebuild from normalized pipeline
+# Written: 2026-04-22 UTC
+#
+# All models from models.yaml, all 17 CAZ concepts, N=200 train-split pairs.
+# Results land in ~/rosetta_data/models/{slug}/ — no timestamps.
+#
+# Run with:
+#   cd ~/Source/rosetta_analysis
+#   bash jobs/queue_jobs.sh jobs/prh_rebuild.jobs
+#
+# Hardware assumptions:
+#   2× L4 (22 GB each, 44 GB combined)
+#   Phases 1-3 use --parallel (2 small models on 2 GPUs simultaneously)
+#   Phases 4-9 are sequential single-model runs (large or 4-bit)
+#   device_map=auto used for models >20 GB bf16 (spans both L4s)
+# ---------------------------------------------------------------------------
+
+# Phase 1 — Scale ladder  (5 tiny models, <6 GB each, ~20 min total)
+cd ~/rosetta_analysis && python extraction/extract.py --prh-cluster scale --dtype bfloat16 --batch-size 64 --parallel
+
+# Phase 2 — Cluster A: 768-dim  (2 models: gpt2, pythia-160m, ~10 min)
+cd ~/rosetta_analysis && python extraction/extract.py --prh-cluster A --dtype bfloat16 --batch-size 32 --parallel
+
+# Phase 3 — Cluster B: 2048-dim  (2 models: pythia-1b, Qwen2.5-3B, ~20 min)
+cd ~/rosetta_analysis && python extraction/extract.py --prh-cluster B --dtype bfloat16 --batch-size 16 --parallel
+
+# Phase 4 — Cluster C: 4096-dim, dense models  (~90 min, single-model sequential)
+# pythia-6.9b, opt-6.7b, Llama-3.1-8B, Llama-3.1-8B-Instruct, Mistral-7B
+# (Mixtral handled separately with 4-bit — see Phase 5)
+cd ~/rosetta_analysis && python extraction/extract.py --model EleutherAI/pythia-6.9b --dtype bfloat16 --batch-size 8
+cd ~/rosetta_analysis && python extraction/extract.py --model facebook/opt-6.7b --dtype bfloat16 --batch-size 8
+cd ~/rosetta_analysis && python extraction/extract.py --model meta-llama/Llama-3.1-8B --dtype bfloat16 --batch-size 8
+cd ~/rosetta_analysis && python extraction/extract.py --model meta-llama/Llama-3.1-8B-Instruct --dtype bfloat16 --batch-size 8
+cd ~/rosetta_analysis && python extraction/extract.py --model mistralai/Mistral-7B-v0.3 --dtype bfloat16 --batch-size 8
+
+# Phase 5 — Cluster C: Mixtral-8x7B MoE  (~60 min, 4-bit nf4, ~24 GB)
+cd ~/rosetta_analysis && python extraction/extract.py --model mistralai/Mixtral-8x7B-v0.1 --batch-size 4
+
+# Phase 6 — Cluster D: 3584-dim  (~60 min, sequential)
+cd ~/rosetta_analysis && python extraction/extract.py --model Qwen/Qwen2.5-7B --dtype bfloat16 --batch-size 8
+# gemma-2-9b: 18.5 GB — tight on single L4, use batch-size 1
+cd ~/rosetta_analysis && python extraction/extract.py --model google/gemma-2-9b --dtype bfloat16 --batch-size 1
+
+# Phase 7 — Cluster E: 5120-dim, bf16 models  (~90 min, device_map=auto)
+cd ~/rosetta_analysis && python extraction/extract.py --model EleutherAI/pythia-12b --dtype bfloat16 --batch-size 4
+cd ~/rosetta_analysis && python extraction/extract.py --model Qwen/Qwen2.5-14B --dtype bfloat16 --batch-size 4
+
+# Phase 8 — Cluster E: Qwen2.5-32B  (~60 min, 4-bit nf4, ~16 GB)
+cd ~/rosetta_analysis && python extraction/extract.py --model Qwen/Qwen2.5-32B --batch-size 4
+
+# Phase 9 — Cluster G: Gemma 4  (~90 min)
+# gemma-4-12b-it: 24 GB — device_map=auto across both L4s
+cd ~/rosetta_analysis && python extraction/extract.py --model google/gemma-4-12b-it --dtype bfloat16 --batch-size 4
+# gemma-4-27b-it: MoE, 4-bit nf4, ~15 GB
+cd ~/rosetta_analysis && python extraction/extract.py --model google/gemma-4-27b-it --batch-size 4
+
+# ---
+# Extraction complete. Run alignment analysis on the fresh results.
+
+# Phase 10a — Procrustes alignment, same-dim pairs (zero-PCA, primary PRH claims)
+cd ~/rosetta_analysis && python alignment/align.py --all --same-dim-only --out ~/rosetta_data/alignment/prh_samedim.csv
+
+# Phase 10b — Depth-matched trajectory alignment
+cd ~/rosetta_analysis && python alignment/align_trajectory.py --all --out ~/rosetta_data/alignment/prh_trajectory.csv
+
+# Phase 10c — Permuted-label null (N=100, direction-specificity control)
+cd ~/rosetta_analysis && python alignment/align.py --all --same-dim-only --permute-labels 100 --out ~/rosetta_data/alignment/null_permuted.csv
+
+# Phase 10d — Cross-concept transfer (tests rotation generality across concepts)
+cd ~/rosetta_analysis && python alignment/align.py --all --same-dim-only --cross-concept-transfer --out ~/rosetta_data/alignment/null_cross_concept.csv
