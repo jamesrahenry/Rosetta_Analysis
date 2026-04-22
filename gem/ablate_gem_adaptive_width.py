@@ -411,6 +411,8 @@ def main() -> None:
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--model", type=str)
     group.add_argument("--all", action="store_true")
+    group.add_argument("--aggregate-only", action="store_true",
+                       help="Skip model runs, just re-aggregate existing results")
     parser.add_argument("--n-windows", type=int, default=N_WINDOWS_DEFAULT)
     parser.add_argument("--device", choices=["cuda", "cpu", "auto"], default="auto")
     parser.add_argument("--dtype", choices=["auto", "bfloat16", "float32"], default="auto")
@@ -420,13 +422,13 @@ def main() -> None:
     args = parser.parse_args()
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    rng = np.random.default_rng(args.seed)
 
-    models = discover_base_models() if args.all else [args.model]
-    log.info("Running on %d models", len(models))
-
-    for model_id in models:
-        run_model(model_id, args, rng)
+    if not args.aggregate_only:
+        rng = np.random.default_rng(args.seed)
+        models = discover_base_models() if args.all else [args.model]
+        log.info("Running on %d models", len(models))
+        for model_id in models:
+            run_model(model_id, args, rng)
 
     aggregate(OUT_DIR)
 
