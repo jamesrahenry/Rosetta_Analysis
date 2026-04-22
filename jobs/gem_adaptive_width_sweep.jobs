@@ -10,7 +10,7 @@
 # hammering HF with back-to-back large-model downloads.
 #
 # Setup: ensure rosetta_data exists, clone rosetta_analysis if needed, then run pythia-70m
-cd ~ && mkdir -p ~/rosetta_data && [ -d rosetta_analysis ] || git clone git@github.com-personal:jamesrahenry/Rosetta_Analysis.git rosetta_analysis && git -C ~/rosetta_analysis pull && cd ~/rosetta_data && python ~/rosetta_analysis/gem/ablate_gem_adaptive_width.py --model EleutherAI/pythia-70m
+cd ~ && mkdir -p ~/rosetta_data && [ -d rosetta_analysis ] || git clone git@github.com:jamesrahenry/Rosetta_Analysis.git rosetta_analysis && git -C ~/rosetta_analysis pull && cd ~/rosetta_data && python ~/rosetta_analysis/gem/ablate_gem_adaptive_width.py --model EleutherAI/pythia-70m
 # Pythia-160m
 cd ~/rosetta_data && git -C ~/rosetta_analysis pull && python ~/rosetta_analysis/gem/ablate_gem_adaptive_width.py --model EleutherAI/pythia-160m
 # Pythia-410m
