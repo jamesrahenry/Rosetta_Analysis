@@ -48,10 +48,10 @@ cd ~/rosetta_analysis && python extraction/extract.py --model Qwen/Qwen2.5-14B -
 # Phase 8 — Cluster E: Qwen2.5-32B  (~60 min, 4-bit nf4, ~16 GB)
 cd ~/rosetta_analysis && python extraction/extract.py --model Qwen/Qwen2.5-32B --batch-size 4
 
-# Phase 9 — Cluster G: Gemma 4  (~90 min)
-# gemma-4-31B-it: dense 31B, 4-bit nf4, ~16 GB
+# Phase 9 — Cluster G: gemma-4-31B-it  (~45 min, 4-bit nf4, ~16 GB)
 cd ~/rosetta_analysis && python extraction/extract.py --model google/gemma-4-31B-it --batch-size 4
-# gemma-4-26B-A4B-it: MoE 26B/4B active, 4-bit nf4, ~15 GB
+
+# Phase 9b — Cluster H: gemma-4-26B-A4B-it  (~45 min, MoE 128 experts/top-8, 4-bit nf4, ~13 GB)
 cd ~/rosetta_analysis && python extraction/extract.py --model google/gemma-4-26B-A4B-it --batch-size 4
 
 # ---
