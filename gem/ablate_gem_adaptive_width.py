@@ -52,7 +52,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from rosetta_tools.ablation import DirectionalAblator, get_transformer_layers
 from rosetta_tools.caz import compute_separation
-from rosetta_tools.dataset import load_pairs, texts_by_label
+from rosetta_tools.dataset import load_concept_pairs, texts_by_label
 from rosetta_tools.extraction import extract_layer_activations
 from rosetta_tools.gpu_utils import (
     get_device, get_dtype, log_device_info,
@@ -77,15 +77,6 @@ CONCEPTS = [
     "causation", "certainty", "credibility", "moral_valence",
     "negation", "sentiment", "temporal_order",
 ]
-CONCEPT_DATASETS = {
-    "causation": "causation_pairs.jsonl",
-    "certainty": "certainty_pairs.jsonl",
-    "credibility": "credibility_pairs.jsonl",
-    "moral_valence": "moral_valence_pairs.jsonl",
-    "negation": "negation_pairs.jsonl",
-    "sentiment": "sentiment_pairs.jsonl",
-    "temporal_order": "temporal_order_pairs.jsonl",
-}
 
 # ---------------------------------------------------------------------------
 # Width selection
@@ -192,8 +183,7 @@ def run_concept(model, tokenizer, concept: str, extraction_dir: Path,
     layers = get_transformer_layers(model)
     n_layers = len(layers)
 
-    dataset_path = DATA_ROOT / CONCEPT_DATASETS[concept]
-    pairs = load_pairs(dataset_path)[:N_PAIRS]
+    pairs = load_concept_pairs(concept, n=N_PAIRS)
     pos_texts, neg_texts = texts_by_label(pairs)
 
     b_sep = baseline_sep(model, tokenizer, pos_texts, neg_texts, device)
