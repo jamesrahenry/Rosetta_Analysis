@@ -48,12 +48,13 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from functools import lru_cache
+from rosetta_tools.paths import ROSETTA_RESULTS
 
 log = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s",
                     datefmt="%H:%M:%S")
 
-RESULTS_ROOT = Path("results")
+RESULTS_ROOT = ROSETTA_RESULTS
 OUT_DIR = RESULTS_ROOT / "trajectory"
 
 CONCEPTS = [

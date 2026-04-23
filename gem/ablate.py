@@ -43,7 +43,6 @@ from pathlib import Path
 
 import numpy as np
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from rosetta_tools.gpu_utils import (
     get_device, get_dtype, log_device_info, log_vram, release_model, purge_hf_cache,
@@ -54,7 +53,10 @@ from rosetta_tools.ablation import (
     DirectionalAblator, get_transformer_layers,
     compute_dominant_direction, kl_divergence_from_logits,
 )
-from rosetta_tools.dataset import load_pairs, texts_by_label
+from rosetta_tools.dataset import load_concept_pairs, texts_by_label
+from rosetta_tools.gem import find_extraction_dir, discover_all_models
+from rosetta_tools.paths import ROSETTA_RESULTS
+from rosetta_tools.gpu_utils import load_causal_lm
 
 logging.basicConfig(
     level=logging.INFO,
@@ -63,18 +65,10 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-RESULTS_ROOT = Path("results")
-DATA_ROOT = Path(__file__).parent.parent / "data"
-
-CONCEPT_DATASETS: dict[str, str] = {
-    "credibility":    "credibility_pairs.jsonl",
-    "negation":       "negation_pairs.jsonl",
-    "sentiment":      "sentiment_pairs.jsonl",
-    "causation":      "causation_pairs.jsonl",
-    "certainty":      "certainty_pairs.jsonl",
-    "moral_valence":  "moral_valence_pairs.jsonl",
-    "temporal_order": "temporal_order_pairs.jsonl",
-}
+CONCEPTS: list[str] = [
+    "credibility", "negation", "sentiment", "causation",
+    "certainty", "moral_valence", "temporal_order",
+]
 
 # General capability prompts for KL divergence measurement.
 # These should be unrelated to any tested concept — we want to measure
@@ -98,26 +92,6 @@ CAPABILITY_PROMPTS = [
 # ---------------------------------------------------------------------------
 # Find extraction results for a model
 # ---------------------------------------------------------------------------
-
-def find_extraction_dir(model_id: str) -> Path | None:
-    """Find the most recent extraction result directory for a model.
-
-    Matches by checking run_summary.json contents rather than directory
-    name slugs, which avoids false matches (e.g. 'gpt2' matching 'gpt2_xl').
-    """
-    candidates = []
-    for d in sorted(RESULTS_ROOT.iterdir(), reverse=True):
-        summary = d / "run_summary.json"
-        if d.is_dir() and summary.exists():
-            try:
-                with open(summary) as f:
-                    data = json.load(f)
-                if data.get("model_id") == model_id:
-                    candidates.append(d)
-            except (json.JSONDecodeError, KeyError):
-                continue
-    return candidates[0] if candidates else None
-
 
 def load_concept_directions(extraction_dir: Path, concept: str) -> dict | None:
     """Load the per-layer concept directions from an extraction result."""
@@ -208,10 +182,7 @@ def ablation_sweep(
 ) -> dict:
     """Sweep ablation across all layers for one concept."""
     # Load concept pairs
-    dataset_path = DATA_ROOT / CONCEPT_DATASETS[concept]
-    pairs = load_pairs(dataset_path)
-    if n_pairs and len(pairs) > n_pairs:
-        pairs = pairs[:n_pairs]
+    pairs = load_concept_pairs(concept, n=n_pairs or 200)
     pos_texts, neg_texts = texts_by_label(pairs)
 
     # Get transformer layers
@@ -335,10 +306,8 @@ def run_model(model_id: str, concepts: list[str], args) -> None:
         dtype = torch.float32
     log_device_info(device, dtype)
 
-    tokenizer = AutoTokenizer.from_pretrained(model_id)
     # Need CausalLM for logits (KL divergence measurement)
-    model = AutoModelForCausalLM.from_pretrained(model_id, dtype=dtype).to(device)
-    model.eval()
+    model, tokenizer = load_causal_lm(model_id, device, dtype)
     log_vram("after model load")
 
     # Auto-reduce batch size if VRAM headroom is tight
@@ -401,18 +370,6 @@ def run_model(model_id: str, concepts: list[str], args) -> None:
     log.info("Done: %s  (%.1fs total)", model_id, total_elapsed)
 
 
-def discover_models() -> list[str]:
-    """Find all models that have extraction results."""
-    models = set()
-    for d in RESULTS_ROOT.iterdir():
-        summary = d / "run_summary.json"
-        if summary.exists():
-            with open(summary) as f:
-                s = json.load(f)
-            models.add(s["model_id"])
-    return sorted(models)
-
-
 def parse_args():
     parser = argparse.ArgumentParser(
         description="Layer-wise ablation sweep for CAZ Prediction 1",
@@ -434,10 +391,10 @@ def parse_args():
 
 def main():
     args = parse_args()
-    concepts = args.concepts or list(CONCEPT_DATASETS.keys())
+    concepts = args.concepts or CONCEPTS
 
     if args.all:
-        models = discover_models()
+        models = discover_all_models()
         log.info("Found %d models with extraction results", len(models))
     else:
         models = [args.model]

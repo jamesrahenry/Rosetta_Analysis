@@ -21,26 +21,16 @@ from pathlib import Path
 
 import numpy as np
 
+from rosetta_tools.gem import find_extraction_dir
+from rosetta_tools.paths import ROSETTA_RESULTS
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger(__name__)
 
-RESULTS_DIR = Path(__file__).resolve().parents[1] / "results"
+RESULTS_DIR = ROSETTA_RESULTS
 CONCEPTS = ["credibility", "certainty", "sentiment", "moral_valence", "causation", "temporal_order", "negation"]
 
 THRESHOLD = 0.5
-
-
-def find_extraction_dir(model_id: str) -> Path | None:
-    for d in sorted(RESULTS_DIR.iterdir(), reverse=True):
-        sf = d / "run_summary.json"
-        if not sf.exists():
-            continue
-        try:
-            if json.load(open(sf)).get("model_id") == model_id:
-                return d
-        except (json.JSONDecodeError, KeyError):
-            continue
-    return None
 
 
 def find_deepdive_dir(model_id: str) -> Path | None:

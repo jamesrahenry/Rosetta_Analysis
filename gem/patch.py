@@ -66,7 +66,9 @@ from rosetta_tools.caz import find_caz_boundary, LayerMetrics
 from rosetta_tools.gpu_utils import (
     get_device, get_dtype, log_device_info, log_vram, release_model, purge_hf_cache,
 )
-from rosetta_tools.dataset import load_pairs, texts_by_label
+from rosetta_tools.dataset import load_concept_pairs, texts_by_label
+from rosetta_tools.gem import find_extraction_dir, discover_all_models
+from rosetta_tools.paths import ROSETTA_RESULTS
 
 logging.basicConfig(
     level=logging.INFO,
@@ -75,39 +77,15 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-RESULTS_ROOT = Path("results")
-DATA_ROOT = Path(__file__).parent.parent / "data"
-
-CONCEPT_DATASETS: dict[str, str] = {
-    "credibility":    "credibility_pairs.jsonl",
-    "negation":       "negation_pairs.jsonl",
-    "sentiment":      "sentiment_pairs.jsonl",
-    "causation":      "causation_pairs.jsonl",
-    "certainty":      "certainty_pairs.jsonl",
-    "moral_valence":  "moral_valence_pairs.jsonl",
-    "temporal_order": "temporal_order_pairs.jsonl",
-}
+CONCEPTS: list[str] = [
+    "credibility", "negation", "sentiment", "causation",
+    "certainty", "moral_valence", "temporal_order",
+]
 
 
 # ---------------------------------------------------------------------------
 # Infrastructure (mirrors ablate.py)
 # ---------------------------------------------------------------------------
-
-def find_extraction_dir(model_id: str) -> Path | None:
-    """Find the most recent extraction result directory for a model."""
-    candidates = []
-    for d in sorted(RESULTS_ROOT.iterdir(), reverse=True):
-        summary = d / "run_summary.json"
-        if d.is_dir() and summary.exists():
-            try:
-                with open(summary) as f:
-                    data = json.load(f)
-                if data.get("model_id") == model_id:
-                    candidates.append(d)
-            except (json.JSONDecodeError, KeyError):
-                continue
-    return candidates[0] if candidates else None
-
 
 def load_concept_directions(extraction_dir: Path, concept: str) -> dict | None:
     caz_path = extraction_dir / f"caz_{concept}.json"
@@ -115,35 +93,6 @@ def load_concept_directions(extraction_dir: Path, concept: str) -> dict | None:
         return None
     with open(caz_path) as f:
         return json.load(f)
-
-
-def discover_models() -> list[str]:
-    """Find models with extraction results that are enabled in the registry.
-
-    Disabled models (e.g. gemma-2-9b, which needs --load-in-8bit) are excluded
-    from --all runs; run them explicitly with --model and --load-in-8bit instead.
-    """
-    try:
-        from rosetta_tools.models import get_model
-        def _enabled(mid: str) -> bool:
-            m = get_model(mid)
-            return m is None or m.enabled  # unknown models pass through
-    except ImportError:
-        def _enabled(mid: str) -> bool:
-            return True
-
-    models = set()
-    for d in RESULTS_ROOT.iterdir():
-        summary = d / "run_summary.json"
-        if summary.exists():
-            try:
-                with open(summary) as f:
-                    mid = json.load(f)["model_id"]
-                if _enabled(mid):
-                    models.add(mid)
-            except Exception:
-                continue
-    return sorted(models)
 
 
 # ---------------------------------------------------------------------------
@@ -268,10 +217,7 @@ def patch_sweep(
     For each layer L, shifts neg hidden states at L by (μ_pos_L - μ_neg_L)
     and measures how much concept signal is recovered at the final layer.
     """
-    dataset_path = DATA_ROOT / CONCEPT_DATASETS[concept]
-    pairs = load_pairs(dataset_path)
-    if n_pairs and len(pairs) > n_pairs:
-        pairs = pairs[:n_pairs]
+    pairs = load_concept_pairs(concept, n=n_pairs or 200)
     pos_texts, neg_texts = texts_by_label(pairs)
 
     layers    = get_transformer_layers(model)
@@ -508,7 +454,7 @@ def main():
                         help="Re-run even if patch_<concept>.json already exists")
     args = parser.parse_args()
 
-    models = [args.model] if args.model else discover_models()
+    models = [args.model] if args.model else discover_all_models()
     log.info("Queued %d models", len(models))
 
     for model_id in models:
@@ -522,7 +468,7 @@ def main():
             concepts = args.concepts
         else:
             concepts = [
-                c for c in CONCEPT_DATASETS
+                c for c in CONCEPTS
                 if (extraction_dir / f"caz_{c}.json").exists()
             ]
 

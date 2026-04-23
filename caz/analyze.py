@@ -30,6 +30,7 @@ from pathlib import Path
 
 from rosetta_tools.reporting import load_results_dir, load_run_summary
 from rosetta_tools.viz import plot_caz_profile, plot_concept_comparison, plot_peak_heatmap
+from rosetta_tools.paths import ROSETTA_RESULTS
 
 logging.basicConfig(
     level=logging.INFO,
@@ -38,7 +39,7 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-RESULTS_ROOT = Path("results")
+RESULTS_ROOT = ROSETTA_RESULTS
 VIZ_DIR = Path("visualizations")
 
 # Family prefixes used in result directory names

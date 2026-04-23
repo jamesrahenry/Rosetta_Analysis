@@ -42,13 +42,14 @@ from pathlib import Path
 
 import numpy as np
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from rosetta_tools.gpu_utils import (
     get_device, get_dtype, log_device_info, log_vram,
-    release_model, purge_hf_cache, vram_stats,
+    release_model, purge_hf_cache, vram_stats, load_causal_lm,
 )
 from rosetta_tools.ablation import DirectionalAblator, get_transformer_layers
+from rosetta_tools.gem import find_extraction_dir, discover_all_models
+from rosetta_tools.paths import ROSETTA_RESULTS
 
 logging.basicConfig(
     level=logging.INFO,
@@ -57,7 +58,7 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-RESULTS_ROOT = Path("results")
+RESULTS_ROOT = ROSETTA_RESULTS
 
 # ---------------------------------------------------------------------------
 # Probe sentences: 3 per concept × 7 concepts = 21 probes
@@ -205,34 +206,6 @@ BEHAVIORAL_PROBES = [
 # ---------------------------------------------------------------------------
 # Results discovery
 # ---------------------------------------------------------------------------
-
-def find_extraction_dir(model_id: str) -> Path | None:
-    candidates = []
-    for d in sorted(RESULTS_ROOT.iterdir(), reverse=True):
-        s = d / "run_summary.json"
-        if d.is_dir() and s.exists():
-            try:
-                if json.loads(s.read_text()).get("model_id") == model_id:
-                    candidates.append(d)
-            except Exception:
-                continue
-    for c in candidates:
-        if any(c.glob("ablation_global_sweep_*.json")):
-            return c
-    return candidates[0] if candidates else None
-
-
-def discover_models() -> list[str]:
-    models = set()
-    for d in RESULTS_ROOT.iterdir():
-        s = d / "run_summary.json"
-        if s.exists():
-            try:
-                models.add(json.loads(s.read_text()).get("model_id", ""))
-            except Exception:
-                pass
-    return sorted(m for m in models if m)
-
 
 def load_concept_data(extraction_dir: Path, concept: str) -> dict | None:
     """Load direction, CAZ peak, and all detected CAZ layers for a concept."""
@@ -467,18 +440,10 @@ def run_model(model_id: str, args) -> None:
     log_device_info(device, dtype)
 
     try:
-        tokenizer = AutoTokenizer.from_pretrained(model_id)
-        try:
-            model = AutoModelForCausalLM.from_pretrained(model_id, dtype=dtype, device_map=device)
-        except TypeError:
-            model = AutoModelForCausalLM.from_pretrained(model_id, dtype=dtype).to(device)
-        model.eval()
+        model, tokenizer = load_causal_lm(model_id, device, dtype)
     except Exception as e:
         log.error("Failed to load %s: %s", model_id, e)
         return
-
-    if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token
 
     if vram_stats(device):
         log_vram(device)
@@ -619,7 +584,7 @@ def main():
     args = parser.parse_args()
 
     if args.all:
-        models = discover_models()
+        models = discover_all_models()
         log.info("Found %d models", len(models))
     else:
         models = [args.model]

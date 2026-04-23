@@ -57,6 +57,7 @@ from rosetta_tools.gpu_utils import (
     get_device, get_dtype, log_device_info, log_vram,
     release_model, purge_hf_cache,
 )
+from rosetta_tools.paths import ROSETTA_RESULTS
 
 logging.basicConfig(
     level=logging.INFO,
@@ -71,7 +72,7 @@ log = logging.getLogger(__name__)
 
 REPO_ROOT   = Path(__file__).resolve().parents[2]
 PAIRS_DIR   = REPO_ROOT / "Rosetta_Concept_Pairs" / "pairs" / "raw" / "v1"
-RESULTS_ROOT = Path("results")
+RESULTS_ROOT = ROSETTA_RESULTS
 
 CONCEPTS = [
     "credibility", "certainty", "sentiment", "moral_valence",

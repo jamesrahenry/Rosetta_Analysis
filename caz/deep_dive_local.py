@@ -40,7 +40,8 @@ from rosetta_tools.gpu_utils import (
 )
 from rosetta_tools.manifold_detector import _layer_census
 from rosetta_tools.feature_tracker import track_features
-from rosetta_tools.dataset import load_pairs
+from rosetta_tools.dataset import load_concept_pairs
+from rosetta_tools.paths import ROSETTA_RESULTS
 
 logging.basicConfig(
     level=logging.INFO,
@@ -49,8 +50,7 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-DATA_ROOT = Path(__file__).parent.parent / "data"
-RESULTS_ROOT = Path(__file__).parent.parent / "results"
+RESULTS_ROOT = ROSETTA_RESULTS
 
 # Local ModelScope cache paths — used instead of HF download for these models.
 MODELSCOPE_ROOT = Path.home() / ".cache" / "modelscope" / "hub" / "models"
@@ -59,25 +59,17 @@ LOCAL_MODEL_PATHS: dict[str, Path] = {
     "mistralai/Mistral-7B-v0.3": MODELSCOPE_ROOT / "mistralai" / "Mistral-7B-v0.3",
 }
 
-CONCEPT_DATASETS = {
-    "credibility":    "credibility_pairs.jsonl",
-    "negation":       "negation_pairs.jsonl",
-    "sentiment":      "sentiment_pairs.jsonl",
-    "causation":      "causation_pairs.jsonl",
-    "certainty":      "certainty_pairs.jsonl",
-    "moral_valence":  "moral_valence_pairs.jsonl",
-    "temporal_order": "temporal_order_pairs.jsonl",
-}
+CONCEPTS: list[str] = [
+    "credibility", "negation", "sentiment", "causation",
+    "certainty", "moral_valence", "temporal_order",
+]
 
 
 def load_all_texts() -> list[str]:
     """Load all contrastive pair texts, labels stripped."""
     all_texts = []
-    for concept, filename in CONCEPT_DATASETS.items():
-        dataset_path = DATA_ROOT / filename
-        if not dataset_path.exists():
-            continue
-        pairs = load_pairs(dataset_path)
+    for concept in CONCEPTS:
+        pairs = load_concept_pairs(concept)
         all_texts.extend([p.pos_text for p in pairs])
         all_texts.extend([p.neg_text for p in pairs])
         log.info("  %s: %d texts", concept, len(pairs) * 2)
@@ -97,7 +89,7 @@ def load_concept_directions_at_layers(model_id: str) -> dict[str, dict[int, np.n
         try:
             if json.load(open(sf)).get("model_id") == model_id:
                 concept_dirs = {}
-                for concept in CONCEPT_DATASETS:
+                for concept in CONCEPTS:
                     caz_file = d / f"caz_{concept}.json"
                     if not caz_file.exists():
                         continue

@@ -42,13 +42,12 @@ from pathlib import Path
 
 import numpy as np
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from rosetta_tools.ablation import DirectionalAblator, get_transformer_layers
 from rosetta_tools.gem import discover_base_models, find_extraction_dir
 from rosetta_tools.gpu_utils import (
     get_device, get_dtype, log_device_info,
-    release_model, purge_hf_cache,
+    release_model, purge_hf_cache, load_causal_lm,
 )
 
 logging.basicConfig(
@@ -317,14 +316,7 @@ def run_model(model_id: str, args) -> None:
     log_device_info(device, dtype)
 
     try:
-        tokenizer = AutoTokenizer.from_pretrained(model_id)
-        try:
-            model = AutoModelForCausalLM.from_pretrained(
-                model_id, dtype=dtype, device_map=device)
-        except TypeError:
-            model = AutoModelForCausalLM.from_pretrained(
-                model_id, dtype=dtype).to(device)
-        model.eval()
+        model, tokenizer = load_causal_lm(model_id, device, dtype)
     except Exception as e:
         log.error("Failed to load %s: %s", model_id, e)
         return

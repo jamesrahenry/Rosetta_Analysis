@@ -37,23 +37,18 @@ from rosetta_tools.gpu_utils import (
     get_device, get_dtype, log_device_info, log_vram, release_model, purge_hf_cache,
     load_model_with_retry, NumpyJSONEncoder,
 )
-from rosetta_tools.dataset import load_pairs, texts_by_label
+from rosetta_tools.dataset import load_concept_pairs, texts_by_label
+from rosetta_tools.paths import ROSETTA_RESULTS
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger(__name__)
 
-RESULTS_DIR = Path(__file__).resolve().parents[1] / "results"
-DATA_ROOT = Path(__file__).resolve().parents[1] / "data"
+RESULTS_DIR = ROSETTA_RESULTS
 
-CONCEPT_DATASETS = {
-    "credibility": "credibility_pairs.jsonl",
-    "negation": "negation_pairs.jsonl",
-    "sentiment": "sentiment_pairs.jsonl",
-    "causation": "causation_pairs.jsonl",
-    "certainty": "certainty_pairs.jsonl",
-    "moral_valence": "moral_valence_pairs.jsonl",
-    "temporal_order": "temporal_order_pairs.jsonl",
-}
+CONCEPTS: list[str] = [
+    "credibility", "negation", "sentiment", "causation",
+    "certainty", "moral_valence", "temporal_order",
+]
 
 
 def load_deep_dive(model_id: str):
@@ -141,11 +136,8 @@ def run_model(model_id: str, args):
 
     # Load concept pairs for measuring concept impact
     concept_texts = {}
-    for concept, filename in CONCEPT_DATASETS.items():
-        path = DATA_ROOT / filename
-        if not path.exists():
-            continue
-        pairs = load_pairs(path)[:50]  # 50 pairs for speed
+    for concept in CONCEPTS:
+        pairs = load_concept_pairs(concept, n=50)  # 50 pairs for speed
         pos, neg = texts_by_label(pairs)
         concept_texts[concept] = (pos, neg)
 

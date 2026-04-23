@@ -35,6 +35,7 @@ from viz_style import (
     concept_color, CONCEPT_COLORS, CONCEPT_TYPE,
     THEME, apply_theme, layer_ticks, add_outside_callouts,
 )
+from rosetta_tools.paths import ROSETTA_RESULTS
 
 logging.basicConfig(
     level=logging.INFO,
@@ -43,7 +44,7 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-RESULTS_ROOT = Path("results")
+RESULTS_ROOT = ROSETTA_RESULTS
 OUT_DIR      = Path("visualizations") / "cka_boundaries"
 
 CONCEPTS = [

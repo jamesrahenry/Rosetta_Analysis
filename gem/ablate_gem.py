@@ -44,14 +44,19 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from rosetta_tools.ablation import DirectionalAblator, get_transformer_layers
 from rosetta_tools.caz import compute_separation
-from rosetta_tools.dataset import load_pairs, texts_by_label
+from rosetta_tools.dataset import texts_by_label
 from rosetta_tools.extraction import extract_layer_activations
 from rosetta_tools.gpu_utils import (
     get_device, get_dtype, log_device_info, log_vram,
     release_model, purge_hf_cache, vram_stats,
     load_model_with_retry, NumpyJSONEncoder,
 )
-from rosetta_tools.gem import load_gem, ConceptGEM, GEMNode
+from rosetta_tools.dataset import load_concept_pairs
+from rosetta_tools.gem import (
+    load_gem, ConceptGEM, GEMNode,
+    find_extraction_dir, discover_all_models,
+)
+from rosetta_tools.paths import ROSETTA_RESULTS
 
 logging.basicConfig(
     level=logging.INFO,
@@ -60,9 +65,6 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-RESULTS_ROOT = Path("results")
-DATA_ROOT = Path(__file__).parent.parent / "data"
-
 # Local model paths (modelscope mirrors for gated/large models)
 MODELSCOPE_ROOT = Path.home() / ".cache" / "modelscope" / "hub" / "models"
 LOCAL_MODEL_PATHS: dict[str, Path] = {
@@ -70,44 +72,10 @@ LOCAL_MODEL_PATHS: dict[str, Path] = {
     "mistralai/Mistral-7B-v0.3": MODELSCOPE_ROOT / "mistralai" / "Mistral-7B-v0.3",
 }
 
-CONCEPT_DATASETS: dict[str, str] = {
-    "causation":      "causation_pairs.jsonl",
-    "certainty":      "certainty_pairs.jsonl",
-    "credibility":    "credibility_pairs.jsonl",
-    "moral_valence":  "moral_valence_pairs.jsonl",
-    "negation":       "negation_pairs.jsonl",
-    "sentiment":      "sentiment_pairs.jsonl",
-    "temporal_order": "temporal_order_pairs.jsonl",
-}
-
-
-# ---------------------------------------------------------------------------
-# Discovery (shared pattern)
-# ---------------------------------------------------------------------------
-
-def find_extraction_dir(model_id: str) -> Path | None:
-    candidates = []
-    for d in sorted(RESULTS_ROOT.iterdir(), reverse=True):
-        summary = d / "run_summary.json"
-        if d.is_dir() and summary.exists():
-            try:
-                if json.loads(summary.read_text()).get("model_id") == model_id:
-                    candidates.append(d)
-            except (json.JSONDecodeError, KeyError):
-                continue
-    return candidates[0] if candidates else None
-
-
-def discover_models() -> list[str]:
-    models = set()
-    for d in RESULTS_ROOT.iterdir():
-        s = d / "run_summary.json"
-        if s.exists():
-            try:
-                models.add(json.loads(s.read_text()).get("model_id", ""))
-            except Exception:
-                pass
-    return sorted(m for m in models if m)
+CONCEPTS = [
+    "causation", "certainty", "credibility", "moral_valence",
+    "negation", "sentiment", "temporal_order",
+]
 
 
 # ---------------------------------------------------------------------------
@@ -560,8 +528,7 @@ def run_model(
             continue
 
         # Load contrastive pairs
-        dataset_path = DATA_ROOT / CONCEPT_DATASETS[concept]
-        pairs = load_pairs(dataset_path)[:args.n_pairs]
+        pairs = load_concept_pairs(concept, n=args.n_pairs)
         pos_texts, neg_texts = texts_by_label(pairs)
 
         if device.startswith("cuda"):
@@ -738,10 +705,10 @@ def main():
                         metavar="MODEL_ID", help="Skip this model")
     args = parser.parse_args()
 
-    concepts = args.concepts or list(CONCEPT_DATASETS.keys())
+    concepts = args.concepts or CONCEPTS
 
     if args.all:
-        models = discover_models()
+        models = discover_all_models()
         log.info("Found %d models", len(models))
     else:
         models = [args.model]

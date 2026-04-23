@@ -65,7 +65,6 @@ from pathlib import Path
 
 import numpy as np
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from rosetta_tools.gpu_utils import (
     get_device, get_dtype, log_device_info, log_vram, release_model, purge_hf_cache,
@@ -74,7 +73,10 @@ from rosetta_tools.gpu_utils import (
 from rosetta_tools.extraction import extract_layer_activations
 from rosetta_tools.caz import compute_separation
 from rosetta_tools.ablation import DirectionalAblator, get_transformer_layers
-from rosetta_tools.dataset import load_pairs, texts_by_label
+from rosetta_tools.dataset import load_concept_pairs, texts_by_label
+from rosetta_tools.gem import find_extraction_dir, discover_all_models
+from rosetta_tools.paths import ROSETTA_RESULTS
+from rosetta_tools.gpu_utils import load_causal_lm
 
 logging.basicConfig(
     level=logging.INFO,
@@ -83,54 +85,21 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-RESULTS_ROOT = Path("results")
-DATA_ROOT = Path(__file__).parent.parent / "data"
-
-CONCEPT_DATASETS: dict[str, str] = {
-    "credibility":    "credibility_pairs.jsonl",
-    "negation":       "negation_pairs.jsonl",
-    "sentiment":      "sentiment_pairs.jsonl",
-    "causation":      "causation_pairs.jsonl",
-    "certainty":      "certainty_pairs.jsonl",
-    "moral_valence":  "moral_valence_pairs.jsonl",
-    "temporal_order": "temporal_order_pairs.jsonl",
-}
+CONCEPTS: list[str] = [
+    "credibility", "negation", "sentiment", "causation",
+    "certainty", "moral_valence", "temporal_order",
+]
 
 
 # ---------------------------------------------------------------------------
 # Model / extraction discovery
 # ---------------------------------------------------------------------------
 
-def find_extraction_dir(model_id: str) -> Path | None:
-    candidates = []
-    for d in sorted(RESULTS_ROOT.iterdir(), reverse=True):
-        summary = d / "run_summary.json"
-        if d.is_dir() and summary.exists():
-            try:
-                if json.loads(summary.read_text()).get("model_id") == model_id:
-                    candidates.append(d)
-            except (json.JSONDecodeError, KeyError):
-                continue
-    return candidates[0] if candidates else None
-
-
 def load_concept_directions(extraction_dir: Path, concept: str) -> dict | None:
     caz_path = extraction_dir / f"caz_{concept}.json"
     if not caz_path.exists():
         return None
     return json.loads(caz_path.read_text())
-
-
-def discover_models() -> list[str]:
-    models = set()
-    for d in RESULTS_ROOT.iterdir():
-        s = d / "run_summary.json"
-        if s.exists():
-            try:
-                models.add(json.loads(s.read_text()).get("model_id", ""))
-            except Exception:
-                pass
-    return sorted(m for m in models if m)
 
 
 # ---------------------------------------------------------------------------
@@ -198,10 +167,7 @@ def global_sweep(
     batch_size: int,
 ) -> dict:
     """Run a fixed-direction global sweep for one concept."""
-    dataset_path = DATA_ROOT / CONCEPT_DATASETS[concept]
-    pairs = load_pairs(dataset_path)
-    if n_pairs and len(pairs) > n_pairs:
-        pairs = pairs[:n_pairs]
+    pairs = load_concept_pairs(concept, n=n_pairs or 200)
     pos_texts, neg_texts = texts_by_label(pairs)
 
     layers = get_transformer_layers(model)
@@ -307,18 +273,10 @@ def run_model(model_id: str, concepts: list[str], args) -> None:
     log_device_info(device, dtype)
 
     try:
-        tokenizer = AutoTokenizer.from_pretrained(model_id)
-        try:
-            model = AutoModelForCausalLM.from_pretrained(model_id, dtype=dtype, device_map=device)
-        except TypeError:
-            model = AutoModelForCausalLM.from_pretrained(model_id, dtype=dtype).to(device)
-        model.eval()
+        model, tokenizer = load_causal_lm(model_id, device, dtype)
     except Exception as e:
         log.error("Failed to load %s: %s", model_id, e)
         return
-
-    if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token
 
     stats = vram_stats(device)
     if stats:
@@ -386,10 +344,10 @@ def main():
     parser.add_argument("--no-clean-cache", action="store_true")
 
     args = parser.parse_args()
-    concepts = args.concepts or list(CONCEPT_DATASETS.keys())
+    concepts = args.concepts or CONCEPTS
 
     if args.all:
-        models = discover_models()
+        models = discover_all_models()
         log.info("Found %d models", len(models))
     else:
         models = [args.model]

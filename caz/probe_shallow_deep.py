@@ -40,6 +40,7 @@ import torch
 from transformers import AutoTokenizer, AutoModel
 
 from rosetta_tools.caz import find_caz_regions, LayerMetrics
+from rosetta_tools.paths import ROSETTA_RESULTS
 
 logging.basicConfig(
     level=logging.INFO,
@@ -48,7 +49,7 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-RESULTS_ROOT = Path("results")
+RESULTS_ROOT = ROSETTA_RESULTS
 DATA_ROOT = Path("data")
 OUT_DIR = Path("visualizations/structure/probing")
 

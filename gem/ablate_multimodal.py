@@ -37,7 +37,9 @@ from rosetta_tools.gpu_utils import (
 from rosetta_tools.extraction import extract_layer_activations
 from rosetta_tools.caz import compute_separation, find_caz_regions, find_caz_regions_scored, LayerMetrics
 from rosetta_tools.ablation import DirectionalAblator, get_transformer_layers
-from rosetta_tools.dataset import load_pairs, texts_by_label
+from rosetta_tools.dataset import load_concept_pairs, texts_by_label
+from rosetta_tools.gem import find_extraction_dir, discover_all_models
+from rosetta_tools.paths import ROSETTA_RESULTS
 
 logging.basicConfig(
     level=logging.INFO,
@@ -46,33 +48,10 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-RESULTS_ROOT = Path("results")
-DATA_ROOT = Path(__file__).parent.parent / "data"
-
-CONCEPT_DATASETS = {
-    "credibility": "credibility_pairs.jsonl",
-    "negation": "negation_pairs.jsonl",
-    "sentiment": "sentiment_pairs.jsonl",
-    "causation": "causation_pairs.jsonl",
-    "certainty": "certainty_pairs.jsonl",
-    "moral_valence": "moral_valence_pairs.jsonl",
-    "temporal_order": "temporal_order_pairs.jsonl",
-}
-
-
-def find_extraction_dir(model_id: str) -> Path | None:
-    candidates = []
-    for d in sorted(RESULTS_ROOT.iterdir(), reverse=True):
-        summary = d / "run_summary.json"
-        if d.is_dir() and summary.exists():
-            try:
-                with open(summary) as f:
-                    data = json.load(f)
-                if data.get("model_id") == model_id:
-                    candidates.append(d)
-            except (json.JSONDecodeError, KeyError):
-                continue
-    return candidates[0] if candidates else None
+CONCEPTS = [
+    "credibility", "negation", "sentiment", "causation",
+    "certainty", "moral_valence", "temporal_order",
+]
 
 
 def measure_separation_at_layers(
@@ -162,10 +141,7 @@ def ablate_concept(
     log.info("  %d CAZes: %s", len(regions), caz_summary)
 
     # Load contrastive pairs
-    dataset_path = DATA_ROOT / CONCEPT_DATASETS[concept]
-    pairs = load_pairs(dataset_path)
-    if n_pairs and len(pairs) > n_pairs:
-        pairs = pairs[:n_pairs]
+    pairs = load_concept_pairs(concept, n=n_pairs or 200)
     pos_texts, neg_texts = texts_by_label(pairs)
 
     # Get transformer layers and directions
@@ -302,9 +278,8 @@ def run_model(model_id: str, concepts: list[str], args) -> None:
 
     log_device_info(device, dtype)
 
-    tokenizer = AutoTokenizer.from_pretrained(model_id)
-    model = load_model_with_retry(AutoModelForCausalLM, model_id, dtype=dtype, device=device)
-    model.eval()
+    from rosetta_tools.gpu_utils import load_causal_lm
+    model, tokenizer = load_causal_lm(model_id, device, dtype)
     log_vram("after model load")
 
     # Skip if the model barely fits — ablation needs headroom for forward passes
@@ -386,15 +361,6 @@ def run_model(model_id: str, concepts: list[str], args) -> None:
     log.info("Done: %s  (%.1fs total)", model_id, total_elapsed)
 
 
-def discover_models() -> list[str]:
-    models = set()
-    for d in RESULTS_ROOT.iterdir():
-        summary = d / "run_summary.json"
-        if summary.exists():
-            with open(summary) as f:
-                s = json.load(f)
-            models.add(s["model_id"])
-    return sorted(models)
 
 
 def main():
@@ -422,10 +388,10 @@ def main():
                              "or already-completed models.")
     args = parser.parse_args()
 
-    concepts = args.concepts or list(CONCEPT_DATASETS.keys())
+    concepts = args.concepts or CONCEPTS
 
     if args.all:
-        models = discover_models()
+        models = discover_all_models()
         log.info("Found %d models with extraction results", len(models))
     else:
         models = [args.model]

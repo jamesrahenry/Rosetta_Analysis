@@ -52,6 +52,7 @@ from rosetta_tools.caz import (
     LayerMetrics, find_caz_regions_scored,
 )
 from rosetta_tools.dataset import load_pairs, texts_by_label
+from rosetta_tools.paths import ROSETTA_RESULTS
 
 logging.basicConfig(
     level=logging.INFO,
@@ -60,7 +61,7 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-RESULTS_ROOT = Path("results")
+RESULTS_ROOT = ROSETTA_RESULTS
 DATA_ROOT = Path(__file__).parent.parent / "data"
 
 CONCEPT_DATASETS = {

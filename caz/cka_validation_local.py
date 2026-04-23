@@ -47,7 +47,9 @@ from rosetta_tools.gpu_utils import (
 )
 from rosetta_tools.extraction import extract_layer_activations
 from rosetta_tools.caz import find_caz_regions_scored, LayerMetrics
-from rosetta_tools.dataset import load_pairs, texts_by_label
+from rosetta_tools.dataset import load_concept_pairs, texts_by_label
+from rosetta_tools.gem import find_extraction_dir, discover_all_models
+from rosetta_tools.paths import ROSETTA_RESULTS
 from rosetta_tools.models import attention_paradigm_of
 
 logging.basicConfig(
@@ -57,24 +59,16 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-RESULTS_ROOT = Path("results")
-DATA_ROOT = Path(__file__).parent.parent / "data"
+CONCEPTS: list[str] = [
+    "credibility", "negation", "sentiment", "causation",
+    "certainty", "moral_valence", "temporal_order",
+]
 
 # Local ModelScope cache paths — used instead of HF download for these models.
 MODELSCOPE_ROOT = Path.home() / ".cache" / "modelscope" / "hub" / "models"
 LOCAL_MODEL_PATHS: dict[str, Path] = {
     "google/gemma-2-9b":         MODELSCOPE_ROOT / "google"    / "gemma-2-9b",
     "mistralai/Mistral-7B-v0.3": MODELSCOPE_ROOT / "mistralai" / "Mistral-7B-v0.3",
-}
-
-CONCEPT_DATASETS: dict[str, str] = {
-    "credibility":    "credibility_pairs.jsonl",
-    "negation":       "negation_pairs.jsonl",
-    "sentiment":      "sentiment_pairs.jsonl",
-    "causation":      "causation_pairs.jsonl",
-    "certainty":      "certainty_pairs.jsonl",
-    "moral_valence":  "moral_valence_pairs.jsonl",
-    "temporal_order": "temporal_order_pairs.jsonl",
 }
 
 
@@ -121,44 +115,8 @@ def linear_cka(X: np.ndarray, Y: np.ndarray) -> float:
 
 
 # ---------------------------------------------------------------------------
-# Model / extraction discovery (same pattern as ablate_global_sweep.py)
+# Model / extraction discovery
 # ---------------------------------------------------------------------------
-
-def find_extraction_dir(model_id: str) -> Path | None:
-    candidates = []
-    for d in sorted(RESULTS_ROOT.iterdir(), reverse=True):
-        summary = d / "run_summary.json"
-        if d.is_dir() and summary.exists():
-            try:
-                if json.loads(summary.read_text()).get("model_id") == model_id:
-                    candidates.append(d)
-            except (json.JSONDecodeError, KeyError):
-                continue
-    return candidates[0] if candidates else None
-
-
-def discover_models() -> list[str]:
-    try:
-        from rosetta_tools.models import get_model
-        def _enabled(mid: str) -> bool:
-            m = get_model(mid)
-            return m is None or m.enabled
-    except ImportError:
-        def _enabled(mid: str) -> bool:
-            return True
-
-    models = set()
-    for d in RESULTS_ROOT.iterdir():
-        s = d / "run_summary.json"
-        if s.exists():
-            try:
-                mid = json.loads(s.read_text()).get("model_id", "")
-                if mid and _enabled(mid):
-                    models.add(mid)
-            except Exception:
-                pass
-    return sorted(models)
-
 
 def load_concept_data(extraction_dir: Path, concept: str) -> dict | None:
     path = extraction_dir / f"caz_{concept}.json"
@@ -248,10 +206,7 @@ def analyze_concept(
     full_matrix: bool,
 ) -> dict:
     """Compute adjacent CKA and test within-CAZ vs cross-CAZ hypothesis."""
-    dataset_path = DATA_ROOT / CONCEPT_DATASETS[concept]
-    pairs = load_pairs(dataset_path)
-    if n_pairs and len(pairs) > n_pairs:
-        pairs = pairs[:n_pairs]
+    pairs = load_concept_pairs(concept, n=n_pairs or 200)
     pos_texts, neg_texts = texts_by_label(pairs)
     all_texts = pos_texts + neg_texts
 
@@ -571,10 +526,10 @@ def main():
                         metavar="MODEL_ID", help="Skip this model (may be repeated)")
 
     args = parser.parse_args()
-    concepts = args.concepts or list(CONCEPT_DATASETS.keys())
+    concepts = args.concepts or CONCEPTS
 
     if args.all:
-        models = discover_models()
+        models = discover_all_models()
         log.info("Found %d models with extraction results", len(models))
     else:
         models = [args.model]
@@ -593,7 +548,7 @@ def main():
     if len(all_results) > 1:
         agg = aggregate_results(all_results)
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        agg_path = RESULTS_ROOT / f"cka_aggregate_{ts}.json"
+        agg_path = ROSETTA_RESULTS / f"cka_aggregate_{ts}.json"
         agg_path.write_text(json.dumps(agg, indent=2, cls=NumpyJSONEncoder))
         log.info("Aggregate: %s", agg_path)
         log.info("  %d/%d tests support hypothesis (within-CAZ CKA > cross-CAZ CKA)",

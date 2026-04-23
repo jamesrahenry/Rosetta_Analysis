@@ -39,6 +39,7 @@ from viz_style import (
     FAMILY_COLORS, FAMILY_MAP, FAMILY_ORDER, sort_models, model_label,
     THEME, apply_theme, layer_ticks,
 )
+from rosetta_tools.paths import ROSETTA_RESULTS
 
 logging.basicConfig(
     level=logging.INFO,
@@ -47,7 +48,7 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-RESULTS_ROOT = Path("results")
+RESULTS_ROOT = ROSETTA_RESULTS
 OUT_DIR      = Path("visualizations") / "crossmodel"
 
 CONCEPTS = [

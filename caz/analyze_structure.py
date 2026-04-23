@@ -44,6 +44,7 @@ matplotlib.use("Agg")
 from rosetta_tools.reporting import load_results_dir
 from rosetta_tools.caz import find_caz_boundary, LayerMetrics
 from rosetta_tools.viz import CONCEPT_META, CONCEPT_ORDER, TYPE_COLORS
+from rosetta_tools.paths import ROSETTA_RESULTS
 
 logging.basicConfig(
     level=logging.INFO,
@@ -52,7 +53,7 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-RESULTS_ROOT = Path("results")
+RESULTS_ROOT = ROSETTA_RESULTS
 VIZ_DIR = Path("visualizations/structure")
 KNOWN_FAMILIES = ["pythia", "gpt2", "opt", "qwen2", "gemma2"]
 

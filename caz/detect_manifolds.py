@@ -43,7 +43,8 @@ from rosetta_tools.gpu_utils import (
     safe_batch_size,
 )
 from rosetta_tools.manifold_detector import layer_manifold_census
-from rosetta_tools.dataset import load_pairs
+from rosetta_tools.dataset import load_concept_pairs
+from rosetta_tools.paths import ROSETTA_RESULTS
 
 logging.basicConfig(
     level=logging.INFO,
@@ -52,20 +53,13 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-DATA_ROOT = Path(__file__).parent.parent / "data"
-RESULTS_ROOT = Path(__file__).parent.parent / "results"
 # Concept directions live in the semantic_convergence extraction results
 EXTRACTION_ROOT = Path(__file__).parent.parent.parent / "semantic_convergence" / "results"
 
-CONCEPT_DATASETS = {
-    "credibility":    "credibility_pairs.jsonl",
-    "negation":       "negation_pairs.jsonl",
-    "sentiment":      "sentiment_pairs.jsonl",
-    "causation":      "causation_pairs.jsonl",
-    "certainty":      "certainty_pairs.jsonl",
-    "moral_valence":  "moral_valence_pairs.jsonl",
-    "temporal_order": "temporal_order_pairs.jsonl",
-}
+CONCEPTS: list[str] = [
+    "credibility", "negation", "sentiment", "causation",
+    "certainty", "moral_valence", "temporal_order",
+]
 
 from rosetta_tools.models import all_models
 
@@ -97,12 +91,8 @@ def load_diverse_texts(corpus_path: Path | None, n_texts: int = 200) -> list[str
     # Mix all contrastive pairs (ignoring labels) — use everything we have
     log.info("No corpus provided — mixing all contrastive pair texts (labels stripped)")
     all_texts = []
-    for concept, filename in CONCEPT_DATASETS.items():
-        dataset_path = DATA_ROOT / filename
-        if not dataset_path.exists():
-            log.warning("  Dataset not found: %s", dataset_path)
-            continue
-        pairs = load_pairs(dataset_path)
+    for concept in CONCEPTS:
+        pairs = load_concept_pairs(concept)
         all_texts.extend([p.pos_text for p in pairs])
         all_texts.extend([p.neg_text for p in pairs])
         log.info("  %s: %d texts", concept, len(pairs))
@@ -161,7 +151,7 @@ def load_concept_directions(model_id: str, search_root: Path | None = None) -> d
     log.info("Loading concept directions from %s", ext_dir)
     concept_dirs = {}
 
-    for concept in CONCEPT_DATASETS:
+    for concept in CONCEPTS:
         caz_file = ext_dir / f"caz_{concept}.json"
         if not caz_file.exists():
             continue
@@ -279,7 +269,7 @@ def run_model(model_id: str, args) -> None:
     # ── Save results ──
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     model_slug = model_id.replace("/", "_").replace("-", "_")
-    out_dir = Path("results") / f"manifold_{model_slug}_{timestamp}"
+    out_dir = ROSETTA_RESULTS / f"manifold_{model_slug}_{timestamp}"
     out_dir.mkdir(parents=True, exist_ok=True)
 
     # Summary JSON

@@ -49,6 +49,7 @@ from pathlib import Path
 import numpy as np
 from scipy.ndimage import uniform_filter1d
 from scipy.signal import find_peaks
+from rosetta_tools.paths import ROSETTA_RESULTS
 
 logging.basicConfig(
     level=logging.INFO,
@@ -57,7 +58,7 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-RESULTS_ROOT = Path("results")
+RESULTS_ROOT = ROSETTA_RESULTS
 CONCEPTS = ["credibility", "negation", "sentiment", "causation",
             "certainty", "moral_valence", "temporal_order"]
 

@@ -32,7 +32,7 @@ from pathlib import Path
 
 import numpy as np
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from rosetta_tools.gpu_utils import load_causal_lm
 
 logging.basicConfig(
     level=logging.INFO,
@@ -145,13 +145,7 @@ def concept_eigenvectors(
 
 def load_model(device: str) -> tuple:
     log.info("Loading %s...", MODEL_ID)
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
-    model = AutoModelForCausalLM.from_pretrained(
-        MODEL_ID,
-        dtype=torch.bfloat16,
-        device_map=device,
-    )
-    model.eval()
+    model, tokenizer = load_causal_lm(MODEL_ID, device, torch.bfloat16)
     log.info("Model loaded (%d layers, hidden_dim=%d)",
              model.config.num_hidden_layers,
              model.config.hidden_size)

@@ -80,6 +80,7 @@ import pandas as pd
 from rosetta_tools.alignment import align_and_score, compute_procrustes_rotation, apply_rotation, cosine_similarity
 from rosetta_tools.reporting import load_results_dir
 from rosetta_tools.viz import CONCEPT_META, CONCEPT_ORDER
+from rosetta_tools.paths import ROSETTA_RESULTS
 
 logging.basicConfig(
     level=logging.INFO,
@@ -88,7 +89,7 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-RESULTS_ROOT = Path("results")
+RESULTS_ROOT = ROSETTA_RESULTS
 CONCEPTS = list(CONCEPT_META.keys())
 
 

@@ -47,7 +47,9 @@ from rosetta_tools.gpu_utils import (
 from rosetta_tools.extraction import extract_layer_activations
 from rosetta_tools.caz import compute_separation
 from rosetta_tools.ablation import DirectionalAblator, get_transformer_layers
-from rosetta_tools.dataset import load_pairs, texts_by_label
+from rosetta_tools.dataset import load_concept_pairs, texts_by_label
+from rosetta_tools.gem import find_extraction_dir, discover_all_models
+from rosetta_tools.paths import ROSETTA_RESULTS
 
 logging.basicConfig(
     level=logging.INFO,
@@ -56,47 +58,10 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-RESULTS_ROOT = Path("results")
-DATA_ROOT = Path(__file__).parent.parent / "data"
-
-CONCEPT_DATASETS: dict[str, str] = {
-    "credibility":    "credibility_pairs.jsonl",
-    "negation":       "negation_pairs.jsonl",
-    "sentiment":      "sentiment_pairs.jsonl",
-    "causation":      "causation_pairs.jsonl",
-    "certainty":      "certainty_pairs.jsonl",
-    "moral_valence":  "moral_valence_pairs.jsonl",
-    "temporal_order": "temporal_order_pairs.jsonl",
-}
-
-
-def find_extraction_dir(model_id: str) -> Path | None:
-    candidates = []
-    for d in sorted(RESULTS_ROOT.iterdir(), reverse=True):
-        summary = d / "run_summary.json"
-        if d.is_dir() and summary.exists():
-            try:
-                if json.loads(summary.read_text()).get("model_id") == model_id:
-                    candidates.append(d)
-            except (json.JSONDecodeError, KeyError):
-                continue
-    # Prefer the newest dir that has at least one global sweep; fall back to newest overall.
-    for c in candidates:
-        if any(c.glob("ablation_global_sweep_*.json")):
-            return c
-    return candidates[0] if candidates else None
-
-
-def discover_models() -> list[str]:
-    models = set()
-    for d in RESULTS_ROOT.iterdir():
-        s = d / "run_summary.json"
-        if s.exists():
-            try:
-                models.add(json.loads(s.read_text()).get("model_id", ""))
-            except Exception:
-                pass
-    return sorted(m for m in models if m)
+CONCEPTS: list[str] = [
+    "credibility", "negation", "sentiment", "causation",
+    "certainty", "moral_valence", "temporal_order",
+]
 
 
 def random_unit_vector(dim: int, rng: np.random.Generator) -> np.ndarray:
@@ -151,10 +116,7 @@ def run_concept(
     concept_red = sweep["caz_global_sep_reduction"]
 
     # Load pairs
-    dataset_path = DATA_ROOT / CONCEPT_DATASETS[concept]
-    pairs = load_pairs(dataset_path)
-    if n_pairs and len(pairs) > n_pairs:
-        pairs = pairs[:n_pairs]
+    pairs = load_concept_pairs(concept, n=n_pairs or 200)
     pos_texts, neg_texts = texts_by_label(pairs)
 
     layers = get_transformer_layers(model)
@@ -260,18 +222,11 @@ def run_model(model_id: str, concepts: list[str], args) -> None:
     log_device_info(device, dtype)
 
     try:
-        tokenizer = AutoTokenizer.from_pretrained(model_id)
-        try:
-            model = AutoModelForCausalLM.from_pretrained(model_id, dtype=dtype, device_map=device)
-        except TypeError:
-            model = AutoModelForCausalLM.from_pretrained(model_id, dtype=dtype).to(device)
-        model.eval()
+        from rosetta_tools.gpu_utils import load_causal_lm
+        model, tokenizer = load_causal_lm(model_id, device, dtype)
     except Exception as e:
         log.error("Failed to load %s: %s", model_id, e)
         return
-
-    if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token
 
     if device == "cuda":
         stats = vram_stats(device)
@@ -325,10 +280,10 @@ def main():
     parser.add_argument("--no-clean-cache", action="store_true")
 
     args = parser.parse_args()
-    concepts = args.concepts or list(CONCEPT_DATASETS.keys())
+    concepts = args.concepts or CONCEPTS
 
     if args.all:
-        models = discover_models()
+        models = discover_all_models()
         log.info("Found %d models", len(models))
     else:
         models = [args.model]

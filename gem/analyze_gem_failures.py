@@ -47,11 +47,13 @@ from pathlib import Path
 
 import numpy as np
 
+from rosetta_tools.gem import find_extraction_dir
+from rosetta_tools.paths import ROSETTA_RESULTS
+
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 log = logging.getLogger(__name__)
 
-RESULTS_ROOT = Path("results")
-OUT_DIR = RESULTS_ROOT / "gem_failure_analysis"
+OUT_DIR = ROSETTA_RESULTS / "gem_failure_analysis"
 
 FAILURE_MODELS = [
     "openai-community/gpt2",
@@ -68,23 +70,6 @@ CONCEPTS = [
     "causation", "certainty", "credibility", "moral_valence",
     "negation", "sentiment", "temporal_order",
 ]
-
-
-# ---------------------------------------------------------------------------
-# Discovery helpers (dedup by newest mtime, same as random_layer_null)
-# ---------------------------------------------------------------------------
-
-def find_extraction_dir(model_id: str) -> Path | None:
-    candidates = []
-    for d in RESULTS_ROOT.iterdir():
-        s = d / "run_summary.json"
-        if d.is_dir() and s.exists() and list(d.glob("gem_*.json")):
-            try:
-                if json.loads(s.read_text()).get("model_id") == model_id:
-                    candidates.append((d.stat().st_mtime, d))
-            except Exception:
-                continue
-    return max(candidates, key=lambda x: x[0])[1] if candidates else None
 
 
 # ---------------------------------------------------------------------------

@@ -38,6 +38,7 @@ from scipy.stats import mannwhitneyu
 from rosetta_tools.alignment import align_and_score, cosine_similarity
 from rosetta_tools.caz import find_caz_regions, LayerMetrics
 from rosetta_tools.viz import CONCEPT_META
+from rosetta_tools.paths import ROSETTA_RESULTS
 
 logging.basicConfig(
     level=logging.INFO,
@@ -46,7 +47,7 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-RESULTS_ROOT = Path("results")
+RESULTS_ROOT = ROSETTA_RESULTS
 OUT_DIR = Path("visualizations/depth_matched")
 CONCEPTS = list(CONCEPT_META.keys())
 
