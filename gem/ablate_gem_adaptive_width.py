@@ -73,10 +73,12 @@ N_WINDOWS_DEFAULT = 100
 N_PAIRS = 50
 BATCH_SIZE = 4
 
-CONCEPTS = [
-    "causation", "certainty", "credibility", "moral_valence",
-    "negation", "sentiment", "temporal_order",
-]
+def discover_concepts(extraction_dir: Path) -> list[str]:
+    """Return all concepts with a gem_*.json file in the extraction directory."""
+    return sorted(
+        p.stem[len("gem_"):]
+        for p in extraction_dir.glob("gem_*.json")
+    )
 
 # ---------------------------------------------------------------------------
 # Width selection
@@ -288,8 +290,9 @@ def run_model(model_id: str, args, rng: np.random.Generator) -> None:
         tokenizer.pad_token = tokenizer.eos_token
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
+    concepts = discover_concepts(extraction_dir)
     results = []
-    for concept in CONCEPTS:
+    for concept in concepts:
         r = run_concept(model, tokenizer, concept, extraction_dir,
                         model_id, args.n_windows, device, rng)
         if r:
