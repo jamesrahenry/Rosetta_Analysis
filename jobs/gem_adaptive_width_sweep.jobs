@@ -39,22 +39,22 @@ git -C ~/rosetta_analysis pull && python ~/rosetta_analysis/extraction/extract.p
 # Cluster B — Qwen2.5-3B
 python ~/rosetta_analysis/extraction/extract.py --model Qwen/Qwen2.5-3B && python ~/rosetta_analysis/gem/build_gems.py --model Qwen/Qwen2.5-3B && python ~/rosetta_analysis/gem/ablate_gem_adaptive_width.py --model Qwen/Qwen2.5-3B
 # ---
-# Cluster C — pythia-6.9b
-git -C ~/rosetta_analysis pull && python ~/rosetta_analysis/extraction/extract.py --model EleutherAI/pythia-6.9b && python ~/rosetta_analysis/gem/build_gems.py --model EleutherAI/pythia-6.9b && python ~/rosetta_analysis/gem/ablate_gem_adaptive_width.py --model EleutherAI/pythia-6.9b
-# Cluster C — opt-6.7b
-python ~/rosetta_analysis/extraction/extract.py --model facebook/opt-6.7b && python ~/rosetta_analysis/gem/build_gems.py --model facebook/opt-6.7b && python ~/rosetta_analysis/gem/ablate_gem_adaptive_width.py --model facebook/opt-6.7b
-# Cluster C — Mistral-7B-v0.3
-python ~/rosetta_analysis/extraction/extract.py --model mistralai/Mistral-7B-v0.3 && python ~/rosetta_analysis/gem/build_gems.py --model mistralai/Mistral-7B-v0.3 && python ~/rosetta_analysis/gem/ablate_gem_adaptive_width.py --model mistralai/Mistral-7B-v0.3
+# Cluster C — pythia-6.9b (--batch-size 4: 12.4GB model, limited activation headroom)
+git -C ~/rosetta_analysis pull && python ~/rosetta_analysis/extraction/extract.py --model EleutherAI/pythia-6.9b --batch-size 4 && python ~/rosetta_analysis/gem/build_gems.py --model EleutherAI/pythia-6.9b && python ~/rosetta_analysis/gem/ablate_gem_adaptive_width.py --model EleutherAI/pythia-6.9b
+# Cluster C — opt-6.7b (--batch-size 4: same VRAM tier as pythia-6.9b)
+python ~/rosetta_analysis/extraction/extract.py --model facebook/opt-6.7b --batch-size 4 && python ~/rosetta_analysis/gem/build_gems.py --model facebook/opt-6.7b && python ~/rosetta_analysis/gem/ablate_gem_adaptive_width.py --model facebook/opt-6.7b
+# Cluster C — Mistral-7B-v0.3 (--batch-size 4)
+python ~/rosetta_analysis/extraction/extract.py --model mistralai/Mistral-7B-v0.3 --batch-size 4 && python ~/rosetta_analysis/gem/build_gems.py --model mistralai/Mistral-7B-v0.3 && python ~/rosetta_analysis/gem/ablate_gem_adaptive_width.py --model mistralai/Mistral-7B-v0.3
 # ---
-# Cluster D — Qwen2.5-7B
-git -C ~/rosetta_analysis pull && python ~/rosetta_analysis/extraction/extract.py --model Qwen/Qwen2.5-7B && python ~/rosetta_analysis/gem/build_gems.py --model Qwen/Qwen2.5-7B && python ~/rosetta_analysis/gem/ablate_gem_adaptive_width.py --model Qwen/Qwen2.5-7B
-# Cluster D — gemma-2-9b (device_map=auto, ~18GB, use batch_size=1)
-python ~/rosetta_analysis/extraction/extract.py --model google/gemma-2-9b && python ~/rosetta_analysis/gem/build_gems.py --model google/gemma-2-9b && python ~/rosetta_analysis/gem/ablate_gem_adaptive_width.py --model google/gemma-2-9b
+# Cluster D — Qwen2.5-7B (--batch-size 4: 14.5GB model)
+git -C ~/rosetta_analysis pull && python ~/rosetta_analysis/extraction/extract.py --model Qwen/Qwen2.5-7B --batch-size 4 && python ~/rosetta_analysis/gem/build_gems.py --model Qwen/Qwen2.5-7B && python ~/rosetta_analysis/gem/ablate_gem_adaptive_width.py --model Qwen/Qwen2.5-7B
+# Cluster D — gemma-2-9b (--batch-size 1: 18.5GB model, barely fits single L4)
+python ~/rosetta_analysis/extraction/extract.py --model google/gemma-2-9b --batch-size 1 && python ~/rosetta_analysis/gem/build_gems.py --model google/gemma-2-9b && python ~/rosetta_analysis/gem/ablate_gem_adaptive_width.py --model google/gemma-2-9b
 # ---
-# Cluster E — pythia-12b (device_map=auto, 2x L4)
-git -C ~/rosetta_analysis pull && python ~/rosetta_analysis/extraction/extract.py --model EleutherAI/pythia-12b && python ~/rosetta_analysis/gem/build_gems.py --model EleutherAI/pythia-12b && python ~/rosetta_analysis/gem/ablate_gem_adaptive_width.py --model EleutherAI/pythia-12b
-# Cluster E — Qwen2.5-14B (device_map=auto, 2x L4)
-python ~/rosetta_analysis/extraction/extract.py --model Qwen/Qwen2.5-14B && python ~/rosetta_analysis/gem/build_gems.py --model Qwen/Qwen2.5-14B && python ~/rosetta_analysis/gem/ablate_gem_adaptive_width.py --model Qwen/Qwen2.5-14B
+# Cluster E — pythia-12b (--batch-size 2, device_map=auto, 2x L4)
+git -C ~/rosetta_analysis pull && python ~/rosetta_analysis/extraction/extract.py --model EleutherAI/pythia-12b --batch-size 2 && python ~/rosetta_analysis/gem/build_gems.py --model EleutherAI/pythia-12b && python ~/rosetta_analysis/gem/ablate_gem_adaptive_width.py --model EleutherAI/pythia-12b
+# Cluster E — Qwen2.5-14B (--batch-size 2, device_map=auto, 2x L4)
+python ~/rosetta_analysis/extraction/extract.py --model Qwen/Qwen2.5-14B --batch-size 2 && python ~/rosetta_analysis/gem/build_gems.py --model Qwen/Qwen2.5-14B && python ~/rosetta_analysis/gem/ablate_gem_adaptive_width.py --model Qwen/Qwen2.5-14B
 # ---
 # Aggregate all per-model results
 git -C ~/rosetta_analysis pull && python ~/rosetta_analysis/gem/ablate_gem_adaptive_width.py --aggregate-only
