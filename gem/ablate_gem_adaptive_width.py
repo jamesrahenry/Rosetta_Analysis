@@ -361,10 +361,14 @@ def main() -> None:
     parser.add_argument("--n-windows", type=int, default=N_WINDOWS_DEFAULT)
     parser.add_argument("--device", choices=["cuda", "cpu", "auto"], default="auto")
     parser.add_argument("--dtype", choices=["auto", "bfloat16", "float32"], default="auto")
+    parser.add_argument("--batch-size", type=int, default=4)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--no-clean-cache", action="store_true")
     args = parser.parse_args()
+
+    global BATCH_SIZE
+    BATCH_SIZE = args.batch_size
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
 
