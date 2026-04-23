@@ -1,0 +1,26 @@
+# GEM ablation — all 17 concepts, 14 corpus base models
+# Compares handoff-layer probe vs peak-layer probe (--compare-peak)
+# This is the §5.1 validation data for the GEM paper.
+# Written: 2026-04-23 UTC
+#
+# Each model: 17 concepts × 50 pairs × (handoff + peak + null) ≈ 850 forward passes
+# Estimated time: ~45-60 min per 7B model, ~10-15 min for small models
+#
+# Depends on corpus rebuild completing (gemma-2-9b run t2dae8d6).
+# Large / locally-cached models first.
+cd ~/rosetta_analysis && python gem/ablate_gem.py --model google/gemma-2-9b --compare-peak --width 3
+cd ~/rosetta_analysis && python gem/ablate_gem.py --model mistralai/Mistral-7B-v0.3 --compare-peak --width 3
+cd ~/rosetta_analysis && python gem/ablate_gem.py --model Qwen/Qwen2.5-7B --compare-peak --width 3
+cd ~/rosetta_analysis && python gem/ablate_gem.py --model facebook/opt-6.7b --compare-peak --width 3
+cd ~/rosetta_analysis && python gem/ablate_gem.py --model EleutherAI/pythia-6.9b --compare-peak --width 3
+cd ~/rosetta_analysis && python gem/ablate_gem.py --model Qwen/Qwen2.5-3B --compare-peak --width 3
+cd ~/rosetta_analysis && python gem/ablate_gem.py --model EleutherAI/pythia-2.8b --compare-peak --width 3
+cd ~/rosetta_analysis && python gem/ablate_gem.py --model Qwen/Qwen2.5-1.5B --compare-peak --width 3
+cd ~/rosetta_analysis && python gem/ablate_gem.py --model EleutherAI/pythia-1b --compare-peak --width 3
+cd ~/rosetta_analysis && python gem/ablate_gem.py --model Qwen/Qwen2.5-0.5B --compare-peak --width 3
+cd ~/rosetta_analysis && python gem/ablate_gem.py --model EleutherAI/pythia-410m --compare-peak --width 3
+cd ~/rosetta_analysis && python gem/ablate_gem.py --model EleutherAI/pythia-160m --compare-peak --width 3
+cd ~/rosetta_analysis && python gem/ablate_gem.py --model openai-community/gpt2 --compare-peak --width 3
+cd ~/rosetta_analysis && python gem/ablate_gem.py --model EleutherAI/pythia-70m --compare-peak --width 3
+# ---
+cd ~/rosetta_analysis && python gem/aggregate_gem_results.py

@@ -1,0 +1,25 @@
+# GEM adaptive width — all 17 concepts, 14 corpus base models
+# Re-run after ablate_gem_adaptive_width.py was fixed for 17 concepts (was hardcoded to 7).
+# This is the §5.2 data for the GEM paper.
+# Written: 2026-04-23 UTC
+#
+# Each model: 17 concepts × (adaptive + w=3 + 100 null windows) ≈ 1700 forward passes
+# Estimated time: ~60-80 min per 7B model, ~15-20 min for small models
+#
+# Depends on corpus rebuild completing (gemma-2-9b run t2dae8d6).
+# The adaptive width script uses discover_concepts() — runs on all 17 automatically.
+# Large / locally-cached models first.
+cd ~/rosetta_analysis && python gem/ablate_gem_adaptive_width.py --model google/gemma-2-9b
+cd ~/rosetta_analysis && python gem/ablate_gem_adaptive_width.py --model mistralai/Mistral-7B-v0.3
+cd ~/rosetta_analysis && python gem/ablate_gem_adaptive_width.py --model Qwen/Qwen2.5-7B
+cd ~/rosetta_analysis && python gem/ablate_gem_adaptive_width.py --model facebook/opt-6.7b
+cd ~/rosetta_analysis && python gem/ablate_gem_adaptive_width.py --model EleutherAI/pythia-6.9b
+cd ~/rosetta_analysis && python gem/ablate_gem_adaptive_width.py --model Qwen/Qwen2.5-3B
+cd ~/rosetta_analysis && python gem/ablate_gem_adaptive_width.py --model EleutherAI/pythia-2.8b
+cd ~/rosetta_analysis && python gem/ablate_gem_adaptive_width.py --model Qwen/Qwen2.5-1.5B
+cd ~/rosetta_analysis && python gem/ablate_gem_adaptive_width.py --model EleutherAI/pythia-1b
+cd ~/rosetta_analysis && python gem/ablate_gem_adaptive_width.py --model Qwen/Qwen2.5-0.5B
+cd ~/rosetta_analysis && python gem/ablate_gem_adaptive_width.py --model EleutherAI/pythia-410m
+cd ~/rosetta_analysis && python gem/ablate_gem_adaptive_width.py --model EleutherAI/pythia-160m
+cd ~/rosetta_analysis && python gem/ablate_gem_adaptive_width.py --model openai-community/gpt2
+cd ~/rosetta_analysis && python gem/ablate_gem_adaptive_width.py --model EleutherAI/pythia-70m

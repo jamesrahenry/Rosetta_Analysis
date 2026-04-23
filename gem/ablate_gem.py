@@ -73,8 +73,10 @@ LOCAL_MODEL_PATHS: dict[str, Path] = {
 }
 
 CONCEPTS = [
-    "causation", "certainty", "credibility", "moral_valence",
-    "negation", "sentiment", "temporal_order",
+    "agency", "authorization", "causation", "certainty", "credibility",
+    "deception", "exfiltration", "formality", "moral_valence", "negation",
+    "plurality", "sarcasm", "sentiment", "specificity", "temporal_order",
+    "threat_severity", "urgency",
 ]
 
 
