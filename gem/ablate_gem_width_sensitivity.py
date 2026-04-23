@@ -45,8 +45,9 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from rosetta_tools.ablation import DirectionalAblator, get_transformer_layers
 from rosetta_tools.caz import compute_separation
-from rosetta_tools.dataset import load_pairs, texts_by_label
+from rosetta_tools.dataset import load_concept_pairs, texts_by_label
 from rosetta_tools.extraction import extract_layer_activations
+from rosetta_tools.gem import discover_concepts, discover_base_models, find_extraction_dir
 from rosetta_tools.gpu_utils import (
     get_device, get_dtype, log_device_info,
     release_model, purge_hf_cache, NumpyJSONEncoder,
@@ -59,9 +60,7 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-RESULTS_ROOT = Path("results")
-DATA_ROOT = Path(__file__).parent.parent / "data"
-OUT_DIR = RESULTS_ROOT / "gem_width_sensitivity"
+OUT_DIR = Path.home() / "rosetta_data" / "results" / "gem_width_sensitivity"
 
 # Representative subset — one per architectural family
 DEFAULT_MODELS = [
@@ -77,46 +76,6 @@ WIDTHS = [1, 3, 5, 7, 10, 15, 20]
 N_PAIRS = 50
 BATCH_SIZE = 4
 
-CONCEPTS = [
-    "causation", "certainty", "credibility", "moral_valence",
-    "negation", "sentiment", "temporal_order",
-]
-CONCEPT_DATASETS = {
-    "causation": "causation_pairs.jsonl", "certainty": "certainty_pairs.jsonl",
-    "credibility": "credibility_pairs.jsonl", "moral_valence": "moral_valence_pairs.jsonl",
-    "negation": "negation_pairs.jsonl", "sentiment": "sentiment_pairs.jsonl",
-    "temporal_order": "temporal_order_pairs.jsonl",
-}
-
-
-# ---------------------------------------------------------------------------
-# Discovery
-# ---------------------------------------------------------------------------
-
-def find_extraction_dir(model_id: str) -> Path | None:
-    candidates = []
-    for d in RESULTS_ROOT.iterdir():
-        s = d / "run_summary.json"
-        if d.is_dir() and s.exists() and list(d.glob("gem_*.json")):
-            try:
-                if json.loads(s.read_text()).get("model_id") == model_id:
-                    candidates.append((d.stat().st_mtime, d))
-            except Exception:
-                continue
-    return max(candidates, key=lambda x: x[0])[1] if candidates else None
-
-
-def discover_base_models() -> list[str]:
-    models = set()
-    for d in RESULTS_ROOT.iterdir():
-        s = d / "run_summary.json"
-        if s.exists():
-            try:
-                mid = json.loads(s.read_text()).get("model_id", "")
-                if mid and not any(t in mid for t in ["Instruct", "instruct", "-it"]):
-                    models.add(mid)
-            except Exception:
-                pass
     return sorted(models)
 
 
@@ -179,8 +138,7 @@ def run_concept(model, tokenizer, concept: str, extraction_dir: Path,
     # CAZ peak layer (reference single-point)
     caz_peak = node.get("caz_peak", handoff_layer)
 
-    dataset_path = DATA_ROOT / CONCEPT_DATASETS[concept]
-    pairs = load_pairs(dataset_path)[:N_PAIRS]
+    pairs = load_concept_pairs(concept, n=N_PAIRS)
     pos_texts, neg_texts = texts_by_label(pairs)
 
     layers = get_transformer_layers(model)
@@ -332,7 +290,7 @@ def run_model(model_id: str, args, widths: list[int]) -> dict | None:
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     concept_results = []
-    for concept in CONCEPTS:
+    for concept in discover_concepts(extraction_dir):
         r = run_concept(model, tokenizer, concept, extraction_dir,
                         device, widths)
         if r:

@@ -54,6 +54,7 @@ from rosetta_tools.ablation import DirectionalAblator, get_transformer_layers
 from rosetta_tools.caz import compute_separation
 from rosetta_tools.dataset import load_concept_pairs, texts_by_label
 from rosetta_tools.extraction import extract_layer_activations
+from rosetta_tools.gem import discover_concepts, discover_base_models, find_extraction_dir
 from rosetta_tools.gpu_utils import (
     get_device, get_dtype, log_device_info,
     release_model, purge_hf_cache, NumpyJSONEncoder,
@@ -66,19 +67,11 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-MODELS_ROOT = Path.home() / "rosetta_data" / "models"
 OUT_DIR = Path.home() / "rosetta_data" / "results" / "gem_adaptive_width"
 
 N_WINDOWS_DEFAULT = 100
 N_PAIRS = 50
 BATCH_SIZE = 4
-
-def discover_concepts(extraction_dir: Path) -> list[str]:
-    """Return all concepts with a gem_*.json file in the extraction directory."""
-    return sorted(
-        p.stem[len("gem_"):]
-        for p in extraction_dir.glob("gem_*.json")
-    )
 
 # ---------------------------------------------------------------------------
 # Width selection
@@ -101,37 +94,6 @@ def width_to_window(handoff_layer: int, width: int, n_layers: int) -> list[int]:
     start = max(0, handoff_layer - half)
     end = min(n_layers, handoff_layer + (width - half))
     return list(range(start, end))
-
-
-# ---------------------------------------------------------------------------
-# Discovery (same as other GEM scripts)
-# ---------------------------------------------------------------------------
-
-def _model_slug(model_id: str) -> str:
-    return model_id.replace("/", "_").replace("-", "_")
-
-
-def find_extraction_dir(model_id: str) -> Path | None:
-    d = MODELS_ROOT / _model_slug(model_id)
-    if d.is_dir() and (d / "run_summary.json").exists() and list(d.glob("gem_*.json")):
-        return d
-    return None
-
-
-def discover_base_models() -> list[str]:
-    models = set()
-    if not MODELS_ROOT.exists():
-        return sorted(models)
-    for d in MODELS_ROOT.iterdir():
-        s = d / "run_summary.json"
-        if s.exists():
-            try:
-                mid = json.loads(s.read_text()).get("model_id", "")
-                if mid and not any(t in mid for t in ["Instruct", "instruct", "-it"]):
-                    models.add(mid)
-            except Exception:
-                pass
-    return sorted(models)
 
 
 # ---------------------------------------------------------------------------

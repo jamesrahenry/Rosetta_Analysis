@@ -29,44 +29,13 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-MODELS_ROOT = Path.home() / "rosetta_data" / "models"
-
-def discover_concepts(extraction_dir: Path) -> list[str]:
-    """Return all concepts with a caz_*.json file in the extraction directory."""
-    return sorted(
-        p.stem[len("caz_"):]
-        for p in extraction_dir.glob("caz_*.json")
-    )
-
+from rosetta_tools.gem import (
+    discover_concepts, discover_all_models, find_extraction_dir,
+)
 
 # ---------------------------------------------------------------------------
 # Model / extraction discovery
 # ---------------------------------------------------------------------------
-
-def _model_slug(model_id: str) -> str:
-    return model_id.replace("/", "_").replace("-", "_")
-
-
-def find_extraction_dir(model_id: str) -> Path | None:
-    d = MODELS_ROOT / _model_slug(model_id)
-    return d if d.is_dir() and (d / "run_summary.json").exists() else None
-
-
-def discover_models() -> list[str]:
-    models = []
-    if not MODELS_ROOT.exists():
-        return models
-    for d in MODELS_ROOT.iterdir():
-        s = d / "run_summary.json"
-        if s.exists():
-            try:
-                mid = json.loads(s.read_text()).get("model_id", "")
-                if mid:
-                    models.append(mid)
-            except Exception:
-                pass
-    return sorted(models)
-
 
 # ---------------------------------------------------------------------------
 # Core builder
@@ -255,7 +224,7 @@ def main():
         log.info("Phase 2 requested; defaulting to k=3")
 
     if args.all:
-        models = discover_models()
+        models = discover_all_models()
         log.info("Found %d models with extraction results", len(models))
     else:
         models = [args.model]
