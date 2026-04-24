@@ -188,6 +188,18 @@ def extract_concept(concept, model, tokenizer, device, n_pairs, batch_size, out_
     pairs = load_concept_pairs(concept, n=n_pairs or 200)
 
     pos_texts, neg_texts = texts_by_label(pairs)
+
+    # Qwen2.5 (and any tokenizer without BOS) can produce 0-length input_ids
+    # for empty/whitespace-only strings — filter before they reach the model.
+    def _nonempty(texts):
+        filtered = [t for t in texts if t and t.strip()]
+        if len(filtered) < len(texts):
+            log.warning("  Dropped %d empty texts for concept %s",
+                        len(texts) - len(filtered), concept)
+        return filtered
+    pos_texts = _nonempty(pos_texts)
+    neg_texts = _nonempty(neg_texts)
+
     t0 = time.time()
     layer_data, cal_acts, all_layer_cal = extract_layer_wise_metrics(
         model, tokenizer, pos_texts, neg_texts, device=device, batch_size=batch_size
