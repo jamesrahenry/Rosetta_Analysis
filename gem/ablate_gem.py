@@ -85,28 +85,22 @@ CONCEPTS = [
 # Utilities
 # ---------------------------------------------------------------------------
 
-def _resolve_modelscope_path(path_str: str) -> str:
-    """Return the subdirectory that actually contains tokenizer/model files.
-
-    Modelscope caches models under <root>/google/gemma-2-9b/ but the config
-    files may live one level deeper (e.g. master/ or a snapshot hash dir).
-    transformers' cached_files only recognises a local path when the sentinel
-    files (config.json / tokenizer_config.json) are present at the top level;
-    if they're missing it falls through to hf_hub_download and chokes on the
-    absolute path as a repo ID.
-    """
+def _find_tokenizer_dir(path_str: str) -> str | None:
+    """Return the directory that contains tokenizer_config.json, searching up to 2 levels."""
     p = Path(path_str)
     if not p.is_dir():
+        return None
+    if (p / "tokenizer_config.json").exists():
         return path_str
-    sentinels = {"config.json", "tokenizer_config.json"}
-    if any((p / s).exists() for s in sentinels):
-        return path_str
-    # Search one level of subdirectories (master, main, snapshot hashes, …)
     for child in sorted(p.iterdir()):
-        if child.is_dir() and any((child / s).exists() for s in sentinels):
-            log.info("Resolved modelscope subdir: %s → %s", path_str, child)
+        if not child.is_dir():
+            continue
+        if (child / "tokenizer_config.json").exists():
             return str(child)
-    return path_str
+        for grandchild in sorted(child.iterdir()):
+            if grandchild.is_dir() and (grandchild / "tokenizer_config.json").exists():
+                return str(grandchild)
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -526,11 +520,30 @@ def run_model(
         LOCAL_MODEL_PATHS[model_id] = Path(_override)
     load_path = str(LOCAL_MODEL_PATHS.get(model_id, model_id))
     if load_path != model_id:
-        load_path = _resolve_modelscope_path(load_path)
         log.info("Loading from local path: %s", load_path)
 
     _is_local = load_path != model_id
-    tokenizer = AutoTokenizer.from_pretrained(load_path)
+    if _is_local:
+        # Model weights are in modelscope cache; tokenizer may be in HF cache (downloaded
+        # separately on first run) or in the modelscope tree.  Try both in order.
+        tokenizer = None
+        try:
+            tokenizer = AutoTokenizer.from_pretrained(model_id, local_files_only=True)
+            log.info("Tokenizer loaded from HF cache")
+        except Exception:
+            pass
+        if tokenizer is None:
+            tok_dir = _find_tokenizer_dir(load_path)
+            if tok_dir:
+                log.info("Tokenizer loaded from modelscope: %s", tok_dir)
+                tokenizer = AutoTokenizer.from_pretrained(tok_dir)
+        if tokenizer is None:
+            raise RuntimeError(
+                f"Cannot find tokenizer for {model_id}: not in HF cache and "
+                f"tokenizer_config.json not found under {load_path}"
+            )
+    else:
+        tokenizer = AutoTokenizer.from_pretrained(load_path)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     load_kwargs = dict(torch_dtype=dtype, device_map=device)
