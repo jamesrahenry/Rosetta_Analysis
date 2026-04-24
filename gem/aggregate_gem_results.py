@@ -17,8 +17,9 @@ import math
 
 # ── constants ───────────────────────────────────────────────────────────────
 
-RESULTS_DIR = os.path.join(os.path.dirname(__file__), "..", "results")
-OUTPUT_MD = os.path.join(RESULTS_DIR, "gem_sweep_aggregate.md")
+from rosetta_tools.paths import ROSETTA_MODELS
+RESULTS_DIR = str(ROSETTA_MODELS)
+OUTPUT_MD = os.path.join(os.path.dirname(__file__), "..", "results", "gem_sweep_aggregate.md")
 
 # Parameter counts (billions)
 PARAM_LOOKUP = {
