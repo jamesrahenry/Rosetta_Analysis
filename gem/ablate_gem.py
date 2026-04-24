@@ -104,23 +104,38 @@ def _find_tokenizer_dir(path_str: str) -> str | None:
 
 
 def _populate_modelscope_configs(load_path: str, model_id: str) -> None:
+    """Ensure config files are present alongside modelscope weight shards.
+
+    Modelscope caches only the safetensors weights; config/tokenizer files must
+    come from HF.  huggingface_hub ≥0.36 validates repo IDs in
+    try_to_load_from_cache, rejecting absolute paths — so from_pretrained(local_path)
+    crashes if config.json is missing from that directory.  We fix this by
+    downloading each config file individually using the valid model_id string,
+    then copying it into the weights directory so subsequent loads are fully local.
+    """
+    import shutil
+    from huggingface_hub import hf_hub_download
     p = Path(load_path)
-    # Always emit a directory listing so we can see what's actually present
-    if p.is_dir():
-        names = sorted(f.name for f in p.iterdir())
-        log.info("Modelscope dir (%d entries): %s", len(names), names)
-    else:
+    if not p.is_dir():
         log.error("Modelscope path is not a directory: %s", load_path)
         return
     if (p / "config.json").exists():
         return
-    try:
-        from transformers import AutoConfig
-        config = AutoConfig.from_pretrained(model_id, local_files_only=True)
-        config.save_pretrained(load_path)
-        log.info("Copied model config from HF cache → %s", load_path)
-    except Exception as exc:
-        log.warning("Could not populate config at %s: %s", load_path, exc)
+    config_files = [
+        "config.json", "generation_config.json",
+        "tokenizer_config.json", "tokenizer.json", "tokenizer.model",
+        "special_tokens_map.json", "added_tokens.json",
+    ]
+    for fname in config_files:
+        dst = p / fname
+        if dst.exists():
+            continue
+        try:
+            src = hf_hub_download(model_id, fname)
+            shutil.copy(src, dst)
+            log.info("Seeded %s into %s", fname, load_path)
+        except Exception:
+            pass  # file may not exist for this model; that's fine
 
 
 # ---------------------------------------------------------------------------
