@@ -82,6 +82,34 @@ CONCEPTS = [
 
 
 # ---------------------------------------------------------------------------
+# Utilities
+# ---------------------------------------------------------------------------
+
+def _resolve_modelscope_path(path_str: str) -> str:
+    """Return the subdirectory that actually contains tokenizer/model files.
+
+    Modelscope caches models under <root>/google/gemma-2-9b/ but the config
+    files may live one level deeper (e.g. master/ or a snapshot hash dir).
+    transformers' cached_files only recognises a local path when the sentinel
+    files (config.json / tokenizer_config.json) are present at the top level;
+    if they're missing it falls through to hf_hub_download and chokes on the
+    absolute path as a repo ID.
+    """
+    p = Path(path_str)
+    if not p.is_dir():
+        return path_str
+    sentinels = {"config.json", "tokenizer_config.json"}
+    if any((p / s).exists() for s in sentinels):
+        return path_str
+    # Search one level of subdirectories (master, main, snapshot hashes, …)
+    for child in sorted(p.iterdir()):
+        if child.is_dir() and any((child / s).exists() for s in sentinels):
+            log.info("Resolved modelscope subdir: %s → %s", path_str, child)
+            return str(child)
+    return path_str
+
+
+# ---------------------------------------------------------------------------
 # Measurement helpers
 # ---------------------------------------------------------------------------
 
@@ -498,32 +526,22 @@ def run_model(
         LOCAL_MODEL_PATHS[model_id] = Path(_override)
     load_path = str(LOCAL_MODEL_PATHS.get(model_id, model_id))
     if load_path != model_id:
+        load_path = _resolve_modelscope_path(load_path)
         log.info("Loading from local path: %s", load_path)
 
     _is_local = load_path != model_id
-    # huggingface_hub ≥0.24 validates repo IDs even for local paths; HF_HUB_OFFLINE bypasses that
-    _prev_offline = os.environ.get("HF_HUB_OFFLINE")
+    tokenizer = AutoTokenizer.from_pretrained(load_path)
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+    load_kwargs = dict(torch_dtype=dtype, device_map=device)
+    if getattr(args, "load_8bit", False):
+        load_kwargs["load_in_8bit"] = True
+        load_kwargs.pop("torch_dtype", None)  # let bitsandbytes handle dtype
+        log.info("Loading in 8-bit quantization")
     if _is_local:
-        os.environ["HF_HUB_OFFLINE"] = "1"
-    try:
-        tokenizer = AutoTokenizer.from_pretrained(load_path)
-        if tokenizer.pad_token is None:
-            tokenizer.pad_token = tokenizer.eos_token
-        load_kwargs = dict(torch_dtype=dtype, device_map=device)
-        if getattr(args, "load_8bit", False):
-            load_kwargs["load_in_8bit"] = True
-            load_kwargs.pop("torch_dtype", None)  # let bitsandbytes handle dtype
-            log.info("Loading in 8-bit quantization")
-        if _is_local:
-            model = AutoModelForCausalLM.from_pretrained(load_path, **load_kwargs)
-        else:
-            model = load_model_with_retry(AutoModelForCausalLM, model_id, dtype=dtype, device=device)
-    finally:
-        if _is_local:
-            if _prev_offline is None:
-                os.environ.pop("HF_HUB_OFFLINE", None)
-            else:
-                os.environ["HF_HUB_OFFLINE"] = _prev_offline
+        model = AutoModelForCausalLM.from_pretrained(load_path, **load_kwargs)
+    else:
+        model = load_model_with_retry(AutoModelForCausalLM, model_id, dtype=dtype, device=device)
     model.eval()
     log_vram("after model load")
 
