@@ -32,6 +32,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import sys
 import time
 from contextlib import ExitStack
@@ -500,18 +501,29 @@ def run_model(
         log.info("Loading from local path: %s", load_path)
 
     _is_local = load_path != model_id
-    tokenizer = AutoTokenizer.from_pretrained(load_path, local_files_only=_is_local)
-    if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token
-    load_kwargs = dict(torch_dtype=dtype, device_map=device)
-    if getattr(args, "load_8bit", False):
-        load_kwargs["load_in_8bit"] = True
-        load_kwargs.pop("torch_dtype", None)  # let bitsandbytes handle dtype
-        log.info("Loading in 8-bit quantization")
+    # huggingface_hub ≥0.24 validates repo IDs even for local paths; HF_HUB_OFFLINE bypasses that
+    _prev_offline = os.environ.get("HF_HUB_OFFLINE")
     if _is_local:
-        model = AutoModelForCausalLM.from_pretrained(load_path, local_files_only=True, **load_kwargs)
-    else:
-        model = load_model_with_retry(AutoModelForCausalLM, model_id, dtype=dtype, device=device)
+        os.environ["HF_HUB_OFFLINE"] = "1"
+    try:
+        tokenizer = AutoTokenizer.from_pretrained(load_path)
+        if tokenizer.pad_token is None:
+            tokenizer.pad_token = tokenizer.eos_token
+        load_kwargs = dict(torch_dtype=dtype, device_map=device)
+        if getattr(args, "load_8bit", False):
+            load_kwargs["load_in_8bit"] = True
+            load_kwargs.pop("torch_dtype", None)  # let bitsandbytes handle dtype
+            log.info("Loading in 8-bit quantization")
+        if _is_local:
+            model = AutoModelForCausalLM.from_pretrained(load_path, **load_kwargs)
+        else:
+            model = load_model_with_retry(AutoModelForCausalLM, model_id, dtype=dtype, device=device)
+    finally:
+        if _is_local:
+            if _prev_offline is None:
+                os.environ.pop("HF_HUB_OFFLINE", None)
+            else:
+                os.environ["HF_HUB_OFFLINE"] = _prev_offline
     model.eval()
     log_vram("after model load")
 
