@@ -103,6 +103,26 @@ def _find_tokenizer_dir(path_str: str) -> str | None:
     return None
 
 
+def _populate_modelscope_configs(load_path: str, model_id: str) -> None:
+    """Copy model config files from HF cache into the modelscope weights directory.
+
+    Modelscope only caches weight shards; config.json and friends live in the HF
+    cache after the first run.  transformers' cached_files only treats a local path
+    as local when the config files are present alongside the weights.  This function
+    copies them once so subsequent from_pretrained(load_path) calls succeed offline.
+    """
+    from transformers import AutoConfig
+    p = Path(load_path)
+    if (p / "config.json").exists():
+        return
+    try:
+        config = AutoConfig.from_pretrained(model_id, local_files_only=True)
+        config.save_pretrained(load_path)
+        log.info("Copied model config from HF cache → %s", load_path)
+    except Exception as exc:
+        log.warning("Could not populate config at %s: %s", load_path, exc)
+
+
 # ---------------------------------------------------------------------------
 # Measurement helpers
 # ---------------------------------------------------------------------------
@@ -550,6 +570,7 @@ def run_model(
         load_kwargs.pop("torch_dtype", None)  # let bitsandbytes handle dtype
         log.info("Loading in 8-bit quantization")
     if _is_local:
+        _populate_modelscope_configs(load_path, model_id)
         model = AutoModelForCausalLM.from_pretrained(load_path, **load_kwargs)
     else:
         model = load_model_with_retry(AutoModelForCausalLM, model_id, dtype=dtype, device=device)
