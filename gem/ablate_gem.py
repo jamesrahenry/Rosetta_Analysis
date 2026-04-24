@@ -543,6 +543,10 @@ def run_model(
         log.info("Loading from local path: %s", load_path)
 
     _is_local = load_path != model_id
+    if _is_local and not Path(load_path).is_dir():
+        log.warning("Local path %s does not exist; falling back to HF loading", load_path)
+        _is_local = False
+        load_path = model_id
     if _is_local:
         # Model weights are in modelscope cache; tokenizer may be in HF cache (downloaded
         # separately on first run) or in the modelscope tree.  Try both in order.
