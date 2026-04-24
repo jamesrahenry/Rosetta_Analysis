@@ -104,18 +104,18 @@ def _find_tokenizer_dir(path_str: str) -> str | None:
 
 
 def _populate_modelscope_configs(load_path: str, model_id: str) -> None:
-    """Copy model config files from HF cache into the modelscope weights directory.
-
-    Modelscope only caches weight shards; config.json and friends live in the HF
-    cache after the first run.  transformers' cached_files only treats a local path
-    as local when the config files are present alongside the weights.  This function
-    copies them once so subsequent from_pretrained(load_path) calls succeed offline.
-    """
-    from transformers import AutoConfig
     p = Path(load_path)
+    # Always emit a directory listing so we can see what's actually present
+    if p.is_dir():
+        names = sorted(f.name for f in p.iterdir())
+        log.info("Modelscope dir (%d entries): %s", len(names), names)
+    else:
+        log.error("Modelscope path is not a directory: %s", load_path)
+        return
     if (p / "config.json").exists():
         return
     try:
+        from transformers import AutoConfig
         config = AutoConfig.from_pretrained(model_id, local_files_only=True)
         config.save_pretrained(load_path)
         log.info("Copied model config from HF cache → %s", load_path)
