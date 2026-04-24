@@ -499,7 +499,8 @@ def run_model(
     if load_path != model_id:
         log.info("Loading from local path: %s", load_path)
 
-    tokenizer = AutoTokenizer.from_pretrained(load_path)
+    _is_local = load_path != model_id
+    tokenizer = AutoTokenizer.from_pretrained(load_path, local_files_only=_is_local)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     load_kwargs = dict(torch_dtype=dtype, device_map=device)
@@ -507,8 +508,8 @@ def run_model(
         load_kwargs["load_in_8bit"] = True
         load_kwargs.pop("torch_dtype", None)  # let bitsandbytes handle dtype
         log.info("Loading in 8-bit quantization")
-    if model_id in LOCAL_MODEL_PATHS:
-        model = AutoModelForCausalLM.from_pretrained(load_path, **load_kwargs)
+    if _is_local:
+        model = AutoModelForCausalLM.from_pretrained(load_path, local_files_only=True, **load_kwargs)
     else:
         model = load_model_with_retry(AutoModelForCausalLM, model_id, dtype=dtype, device=device)
     model.eval()
