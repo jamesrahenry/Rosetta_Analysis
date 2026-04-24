@@ -538,10 +538,8 @@ def run_model(
                 log.info("Tokenizer loaded from modelscope: %s", tok_dir)
                 tokenizer = AutoTokenizer.from_pretrained(tok_dir)
         if tokenizer is None:
-            raise RuntimeError(
-                f"Cannot find tokenizer for {model_id}: not in HF cache and "
-                f"tokenizer_config.json not found under {load_path}"
-            )
+            log.info("Tokenizer not in HF cache or modelscope tree; downloading from HF…")
+            tokenizer = AutoTokenizer.from_pretrained(model_id)
     else:
         tokenizer = AutoTokenizer.from_pretrained(load_path)
     if tokenizer.pad_token is None:
