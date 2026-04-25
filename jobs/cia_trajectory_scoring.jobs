@@ -1,0 +1,16 @@
+# CIA trajectory scoring experiment
+# Compares three probe approaches on CIA concept set (9 concepts):
+#   A. Single-peak  — dominant CAZ endpoint (current CIA 1.0 approach)
+#   B. Multi-probe  — score at each detected CAZ peak, aggregate max/mean
+#   C. Trajectory   — mean direction across full dominant CAZ span
+#
+# Research question: does multi-layer trajectory scoring improve AUROC
+# and suppression robustness over the single dominant-peak approach?
+#
+# Data: CIA consensus pairs at ~/Concept_Integrity_Auditor/datasets/
+# Output: ~/rosetta_analysis/results/cia_trajectory/
+# Written: 2026-04-25 UTC
+#
+# Run primary CIA model first, then pythia-6.9b as reference point
+cd ~/rosetta_analysis && git pull && python gem/cia_trajectory_scoring.py --model Qwen/Qwen2.5-7B-Instruct --batch-size 4
+cd ~/rosetta_analysis && python gem/cia_trajectory_scoring.py --model EleutherAI/pythia-6.9b --batch-size 4
