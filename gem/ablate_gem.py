@@ -47,6 +47,7 @@ from rosetta_tools.ablation import DirectionalAblator, get_transformer_layers
 from rosetta_tools.caz import compute_separation
 from rosetta_tools.dataset import texts_by_label
 from rosetta_tools.extraction import extract_layer_activations
+from rosetta_tools.models import vram_gb as _registry_vram
 from rosetta_tools.gpu_utils import (
     get_device, get_dtype, log_device_info, log_vram,
     release_model, purge_hf_cache, vram_stats,
@@ -583,7 +584,14 @@ def run_model(
         tokenizer = AutoTokenizer.from_pretrained(load_path)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
-    load_kwargs = dict(torch_dtype=dtype, device_map=device)
+    n_gpus = torch.cuda.device_count() if torch.cuda.is_available() else 0
+    model_vram = _registry_vram(model_id)
+    use_multi_gpu = model_vram > 20.0 and n_gpus > 1
+    effective_device_map = "auto" if use_multi_gpu else device
+    if use_multi_gpu:
+        log.info("Large model (%.0f GB bf16): device_map='auto' across %d GPUs",
+                 model_vram, n_gpus)
+    load_kwargs = dict(torch_dtype=dtype, device_map=effective_device_map)
     if getattr(args, "load_8bit", False):
         load_kwargs["load_in_8bit"] = True
         load_kwargs.pop("torch_dtype", None)  # let bitsandbytes handle dtype
@@ -592,7 +600,8 @@ def run_model(
         _populate_modelscope_configs(load_path, model_id)
         model = AutoModelForCausalLM.from_pretrained(load_path, **load_kwargs)
     else:
-        model = load_model_with_retry(AutoModelForCausalLM, model_id, dtype=dtype, device=device)
+        model = load_model_with_retry(AutoModelForCausalLM, model_id, dtype=dtype,
+                                      device=device, device_map=effective_device_map)
     model.eval()
     log_vram("after model load")
 
