@@ -142,8 +142,7 @@ def build_probe_B(train_acts):
     else:
         for region in profile.regions:
             layer = region.end
-            pos_acts = np.stack([train_acts[layer][0]])
-            neg_acts = np.stack([train_acts[layer][1]])
+            pos_acts, neg_acts = train_acts[layer]  # each shape (n_samples, hidden_dim)
             direction = (pos_acts.mean(0) - neg_acts.mean(0))
             norm = np.linalg.norm(direction)
             if norm > 1e-8:
