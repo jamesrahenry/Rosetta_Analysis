@@ -148,6 +148,8 @@ def run_concept(model, tokenizer, concept: str, extraction_dir: Path,
 
     pairs = load_concept_pairs(concept, n=N_PAIRS)
     pos_texts, neg_texts = texts_by_label(pairs)
+    pos_texts = [t for t in pos_texts if t and t.strip()]
+    neg_texts = [t for t in neg_texts if t and t.strip()]
 
     b_sep = baseline_sep(model, tokenizer, pos_texts, neg_texts, device)
     if b_sep <= 0:
