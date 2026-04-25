@@ -63,7 +63,7 @@ def build_model_gems(
         return {}
 
     if concepts is None:
-        concepts = discover_concepts(extraction_dir)
+        concepts = discover_concepts(extraction_dir, source="caz")
 
     paradigm = attention_paradigm_of(model_id)
     log.info("=== Building GEMs: %s [%s] ===", model_id, paradigm)
