@@ -86,7 +86,7 @@ CIA_MODELS = [
 ]
 
 CIA_DATASET_DIR = Path("~/Concept_Integrity_Auditor/datasets").expanduser()
-RESULTS_DIR = Path("~/rosetta_analysis/results/cia_trajectory").expanduser()
+RESULTS_DIR = Path("~/rosetta_data/cia_trajectory").expanduser()
 
 
 # ---------------------------------------------------------------------------
