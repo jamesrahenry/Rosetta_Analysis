@@ -623,6 +623,8 @@ def run_model(
         # Load contrastive pairs
         pairs = load_concept_pairs(concept, n=args.n_pairs)
         pos_texts, neg_texts = texts_by_label(pairs)
+        pos_texts = [t for t in pos_texts if t and t.strip()]
+        neg_texts = [t for t in neg_texts if t and t.strip()]
 
         if device.startswith("cuda"):
             torch.cuda.empty_cache()
