@@ -333,7 +333,7 @@ def main():
         if tokenizer.pad_token is None:
             tokenizer.pad_token = tokenizer.eos_token
 
-        model = load_model_with_retry(model_name, dtype=dtype, device_map="auto")
+        model = load_model_with_retry(AutoModelForCausalLM, model_name, dtype=dtype, device="cuda", device_map="auto")
         model.eval()
         log_vram("after model load")
 
