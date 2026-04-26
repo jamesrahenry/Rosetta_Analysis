@@ -169,6 +169,116 @@ def build_probe_C(train_acts, caz_start, caz_end):
     return score_layer, traj
 
 
+def build_probe_D(train_acts, caz_start, caz_end):
+    """Layer-matched: per-layer direction across the full dominant CAZ span.
+
+    Unlike C (mean trajectory), D keeps each layer's own direction and scores
+    eval examples against the direction extracted at *that* layer. More faithful
+    to GEM's rotation-aware picture than C's single mean vector.
+    """
+    probes = []
+    for layer in range(caz_start, caz_end + 1):
+        pos_acts, neg_acts = train_acts[layer]
+        diff = pos_acts.mean(0) - neg_acts.mean(0)
+        norm = np.linalg.norm(diff)
+        if norm > 1e-8:
+            probes.append((layer, diff / norm))
+    return probes
+
+
+def build_probe_E(train_acts, profile, n_layers):
+    """Handoff-layer probe: direction at region.end+1 (GEM handoff) per region.
+
+    Tests whether scoring at the settled-product layer (handoff, not peak) is
+    better than scoring at the peak. Directly operationalises the GEM claim that
+    the probe should come from the settled product, not the mid-assembly peak.
+    """
+    if profile.n_regions > 0:
+        regions = profile.regions
+    else:
+        # No detected regions: use last layer as handoff
+        last = n_layers - 1
+        pos_acts, neg_acts = train_acts[last]
+        diff = pos_acts.mean(0) - neg_acts.mean(0)
+        norm = np.linalg.norm(diff)
+        return [(last, diff / norm)] if norm > 1e-8 else []
+    probes = []
+    for region in regions:
+        handoff = min(region.end + 1, n_layers - 1)
+        pos_acts, neg_acts = train_acts[handoff]
+        diff = pos_acts.mean(0) - neg_acts.mean(0)
+        norm = np.linalg.norm(diff)
+        if norm > 1e-8:
+            probes.append((handoff, diff / norm))
+    return probes
+
+
+def build_probe_F(train_acts, caz_start, caz_end):
+    """Velocity-weighted probe: direction emphasising highest-rate-of-change layers.
+
+    Computes V(l) = |S(l) - S(l-1)| (separation velocity) across the CAZ span.
+    Returns:
+      - peak-velocity probe: direction at the layer with highest |V(l)|
+      - velocity-weighted mean direction: layers with high dV contribute more
+    Peak velocity marks active assembly, not just completed assembly.
+    """
+    sep_layers, dirs = [], []
+    for layer in range(caz_start, caz_end + 1):
+        pos_acts, neg_acts = train_acts[layer]
+        diff = pos_acts.mean(0) - neg_acts.mean(0)
+        norm = np.linalg.norm(diff)
+        if norm < 1e-8:
+            continue
+        d = diff / norm
+        s = float(
+            np.mean([cosine_score(a, d) for a in pos_acts])
+            - np.mean([cosine_score(a, d) for a in neg_acts])
+        )
+        sep_layers.append((layer, s))
+        dirs.append((layer, d))
+    if len(sep_layers) < 2:
+        return None
+    seps = np.array([s for _, s in sep_layers])
+    velocities = np.abs(np.diff(seps, prepend=seps[0]))
+    peak_idx = int(np.argmax(velocities))
+    peak_layer, peak_dir = dirs[peak_idx]
+    weights = velocities / (velocities.sum() + 1e-8)
+    weighted = sum(w * d for (_, d), w in zip(dirs, weights))
+    weighted = weighted / (np.linalg.norm(weighted) + 1e-8)
+    score_layer = (caz_start + caz_end) // 2
+    return peak_layer, peak_dir, score_layer, weighted
+
+
+# ---------------------------------------------------------------------------
+# Multi-probe scoring (shared by D and E)
+# ---------------------------------------------------------------------------
+
+def score_multiprobe_max(eval_acts, probes) -> tuple[np.ndarray, np.ndarray]:
+    """Max score across a list of (layer, direction) probes."""
+    all_pos, all_neg = [], []
+    for layer, direction in probes:
+        pos_acts, neg_acts = eval_acts[layer]
+        all_pos.append([cosine_score(a, direction) for a in pos_acts])
+        all_neg.append([cosine_score(a, direction) for a in neg_acts])
+    return (
+        np.max(np.stack(all_pos), axis=0),
+        np.max(np.stack(all_neg), axis=0),
+    )
+
+
+def score_multiprobe_mean(eval_acts, probes) -> tuple[np.ndarray, np.ndarray]:
+    """Mean score across a list of (layer, direction) probes."""
+    all_pos, all_neg = [], []
+    for layer, direction in probes:
+        pos_acts, neg_acts = eval_acts[layer]
+        all_pos.append([cosine_score(a, direction) for a in pos_acts])
+        all_neg.append([cosine_score(a, direction) for a in neg_acts])
+    return (
+        np.mean(np.stack(all_pos), axis=0),
+        np.mean(np.stack(all_neg), axis=0),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Scoring helpers
 # ---------------------------------------------------------------------------
@@ -286,6 +396,8 @@ def run_concept(concept, model, tokenizer, device, batch_size=4):
     log.info("  B (multi-probe)  peaks=%d  AUROC max=%.3f mean=%.3f",
              n_peaks, results["B_multi_probe"]["auroc_max"], results["B_multi_probe"]["auroc_mean"])
 
+    n_layers = len(train_acts)
+
     # --- Approach C: trajectory ---
     layer_C, dir_C = build_probe_C(train_acts, caz_start, caz_end)
     if dir_C is not None:
@@ -302,6 +414,64 @@ def run_concept(concept, model, tokenizer, device, batch_size=4):
                  results["C_trajectory"]["separation"])
     else:
         results["C_trajectory"] = {"error": "insufficient span"}
+
+    # --- Approach D: layer-matched ---
+    probes_D = build_probe_D(train_acts, caz_start, caz_end)
+    if probes_D:
+        pos_Dmax, neg_Dmax   = score_multiprobe_max(eval_acts, probes_D)
+        pos_Dmean, neg_Dmean = score_multiprobe_mean(eval_acts, probes_D)
+        results["D_layer_matched"] = {
+            "n_layers_in_span": len(probes_D),
+            "auroc_max":        auroc(pos_Dmax, neg_Dmax),
+            "auroc_mean":       auroc(pos_Dmean, neg_Dmean),
+            "separation_max":   separation(pos_Dmax, neg_Dmax),
+            "separation_mean":  separation(pos_Dmean, neg_Dmean),
+        }
+        log.info("  D (layer-matched) span=%d  AUROC max=%.3f mean=%.3f",
+                 len(probes_D),
+                 results["D_layer_matched"]["auroc_max"],
+                 results["D_layer_matched"]["auroc_mean"])
+    else:
+        results["D_layer_matched"] = {"error": "insufficient span"}
+
+    # --- Approach E: handoff-layer ---
+    probes_E = build_probe_E(train_acts, profile, n_layers)
+    if probes_E:
+        pos_Emax, neg_Emax   = score_multiprobe_max(eval_acts, probes_E)
+        pos_Emean, neg_Emean = score_multiprobe_mean(eval_acts, probes_E)
+        results["E_handoff"] = {
+            "n_handoffs":      len(probes_E),
+            "auroc_max":       auroc(pos_Emax, neg_Emax),
+            "auroc_mean":      auroc(pos_Emean, neg_Emean),
+            "separation_max":  separation(pos_Emax, neg_Emax),
+            "separation_mean": separation(pos_Emean, neg_Emean),
+        }
+        log.info("  E (handoff)       n=%d  AUROC max=%.3f mean=%.3f",
+                 len(probes_E),
+                 results["E_handoff"]["auroc_max"],
+                 results["E_handoff"]["auroc_mean"])
+    else:
+        results["E_handoff"] = {"error": "no handoff layers"}
+
+    # --- Approach F: velocity-weighted ---
+    probe_F = build_probe_F(train_acts, caz_start, caz_end)
+    if probe_F is not None:
+        layer_Fpeak, dir_Fpeak, layer_Fwt, dir_Fwt = probe_F
+        pos_Fpeak, neg_Fpeak = score_probe_A(eval_acts, layer_Fpeak, dir_Fpeak)
+        pos_Fwt,   neg_Fwt   = score_probe_A(eval_acts, layer_Fwt,   dir_Fwt)
+        results["F_velocity"] = {
+            "peak_vel_layer":   layer_Fpeak,
+            "auroc_peak_vel":   auroc(pos_Fpeak, neg_Fpeak),
+            "auroc_weighted":   auroc(pos_Fwt,   neg_Fwt),
+            "sep_peak_vel":     separation(pos_Fpeak, neg_Fpeak),
+            "sep_weighted":     separation(pos_Fwt,   neg_Fwt),
+        }
+        log.info("  F (velocity)      peak_layer=%d  AUROC peak=%.3f weighted=%.3f",
+                 layer_Fpeak,
+                 results["F_velocity"]["auroc_peak_vel"],
+                 results["F_velocity"]["auroc_weighted"])
+    else:
+        results["F_velocity"] = {"error": "insufficient span"}
 
     return results
 
@@ -358,19 +528,25 @@ def main():
         log.info("Results → %s", out_path)
 
         # Print summary table
-        log.info("\n%s", "=" * 70)
-        log.info("%-22s %8s %8s %8s %8s", "Concept", "A AUROC", "B max", "B mean", "C traj")
-        log.info("-" * 70)
+        log.info("\n%s", "=" * 100)
+        log.info("%-22s %8s %8s %8s %8s %8s %8s %8s %8s",
+                 "Concept", "A", "B_max", "B_mean", "C_traj", "D_max", "D_mean", "E_max", "F_peak")
+        log.info("-" * 100)
         for r in all_results:
             if "error" in r:
                 log.info("%-22s  ERROR: %s", r["concept"], r["error"])
                 continue
-            a  = r.get("A_single_peak", {}).get("auroc", float("nan"))
-            bx = r.get("B_multi_probe", {}).get("auroc_max", float("nan"))
-            bm = r.get("B_multi_probe", {}).get("auroc_mean", float("nan"))
-            c  = r.get("C_trajectory", {}).get("auroc", float("nan"))
-            log.info("%-22s %8.3f %8.3f %8.3f %8.3f", r["concept"], a, bx, bm, c)
-        log.info("=" * 70)
+            a   = r.get("A_single_peak",  {}).get("auroc",       float("nan"))
+            bx  = r.get("B_multi_probe",  {}).get("auroc_max",   float("nan"))
+            bm  = r.get("B_multi_probe",  {}).get("auroc_mean",  float("nan"))
+            c   = r.get("C_trajectory",   {}).get("auroc",       float("nan"))
+            dx  = r.get("D_layer_matched",{}).get("auroc_max",   float("nan"))
+            dm  = r.get("D_layer_matched",{}).get("auroc_mean",  float("nan"))
+            ex  = r.get("E_handoff",      {}).get("auroc_max",   float("nan"))
+            fp  = r.get("F_velocity",     {}).get("auroc_peak_vel", float("nan"))
+            log.info("%-22s %8.3f %8.3f %8.3f %8.3f %8.3f %8.3f %8.3f %8.3f",
+                     r["concept"], a, bx, bm, c, dx, dm, ex, fp)
+        log.info("=" * 100)
 
         release_model(model)
         del model
