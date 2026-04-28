@@ -44,6 +44,7 @@ from rosetta_tools.gpu_utils import (
     get_device, get_dtype, log_device_info, log_vram, release_model, purge_hf_cache,
     vram_stats,
 )
+from rosetta_tools.models import vram_gb as _registry_vram
 from rosetta_tools.extraction import extract_layer_activations
 from rosetta_tools.caz import compute_separation
 from rosetta_tools.ablation import DirectionalAblator, get_transformer_layers
@@ -221,9 +222,15 @@ def run_model(model_id: str, concepts: list[str], args) -> None:
     dtype  = get_dtype(args.dtype, device)
     log_device_info(device, dtype)
 
+    n_gpus = torch.cuda.device_count() if torch.cuda.is_available() else 0
+    model_vram = _registry_vram(model_id)
+    device_map = "auto" if (model_vram > 20.0 and n_gpus > 1) else None
+    if device_map:
+        log.info("Large model (%.0f GB bf16): device_map='auto' across %d GPUs",
+                 model_vram, n_gpus)
     try:
         from rosetta_tools.gpu_utils import load_causal_lm
-        model, tokenizer = load_causal_lm(model_id, device, dtype)
+        model, tokenizer = load_causal_lm(model_id, device, dtype, device_map=device_map)
     except Exception as e:
         log.error("Failed to load %s: %s", model_id, e)
         return
