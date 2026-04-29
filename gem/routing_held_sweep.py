@@ -341,6 +341,7 @@ def aggregate(out_dir: Path) -> None:
 
 
 def main() -> None:
+    global BATCH_SIZE
     parser = argparse.ArgumentParser(description=__doc__.strip().split("\n")[0])
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--model", type=str)
@@ -354,7 +355,6 @@ def main() -> None:
     parser.add_argument("--no-clean-cache", action="store_true")
     args = parser.parse_args()
 
-    global BATCH_SIZE
     BATCH_SIZE = args.batch_size
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
