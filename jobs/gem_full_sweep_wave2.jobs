@@ -1,0 +1,72 @@
+# GEM full sweep — wave 2 (models not in wave 1 sweep)
+# Written: 2026-04-29 UTC
+#
+# Targets 34 total models (16 from wave 1 + 18 new). Covers:
+#   - Instruct variants for PRH/RLHF geometry (Qwen, Gemma-2, Llama-3.2/3.1, Mistral)
+#   - phi-2 (ordering inversion control)
+#   - opt-2.7b (OPT scale step)
+#   - gemma-2-2b (small alternating-attn baseline)
+#   - Llama-3.2-1B/3B and instruct pairs (gated, needs HF token on GPU host)
+#   - Llama-3.1-8B + Instruct (gated, enabled Cluster C)
+#   - Mixtral-8x7B and Qwen2.5-32B (4-bit; extract+GEM only — ablation skipped,
+#     load_causal_lm lacks 4-bit support)
+#
+# Full pipeline per model:  extract → build_gems → ablate_gem_adaptive_width
+# 4-bit models (Mixtral, Qwen2.5-32B): extract → build_gems  (no ablation)
+#
+# Hardware: 2× L4 (22 GB each). batch-size notes per model.
+# Batch sizes for ablate match extract (activation patching needs same headroom).
+# device_map=auto handled internally for models > 20 GB bf16.
+#
+# Run with:
+#   cd ~/rosetta_analysis
+#   bash jobs/queue_jobs.sh jobs/gem_full_sweep_wave2.jobs
+
+# Setup — pull latest code
+git -C ~/rosetta_analysis pull && git -C ~/Rosetta_Concept_Pairs pull
+# ---
+# phi-2 (2560-dim, 5.6 GB, redundant encoder, ordering-inversion control)
+python ~/rosetta_analysis/extraction/extract.py --model microsoft/phi-2 && python ~/rosetta_analysis/gem/build_gems.py --model microsoft/phi-2 && python ~/rosetta_analysis/gem/ablate_gem_adaptive_width.py --model microsoft/phi-2
+# Qwen2.5-0.5B-Instruct (896-dim, 1.0 GB, sparse, rlhf-pair)
+python ~/rosetta_analysis/extraction/extract.py --model Qwen/Qwen2.5-0.5B-Instruct && python ~/rosetta_analysis/gem/build_gems.py --model Qwen/Qwen2.5-0.5B-Instruct && python ~/rosetta_analysis/gem/ablate_gem_adaptive_width.py --model Qwen/Qwen2.5-0.5B-Instruct
+# Qwen2.5-1.5B-Instruct (1536-dim, 3.1 GB, sparse, rlhf-pair)
+python ~/rosetta_analysis/extraction/extract.py --model Qwen/Qwen2.5-1.5B-Instruct && python ~/rosetta_analysis/gem/build_gems.py --model Qwen/Qwen2.5-1.5B-Instruct && python ~/rosetta_analysis/gem/ablate_gem_adaptive_width.py --model Qwen/Qwen2.5-1.5B-Instruct
+# Qwen2.5-3B-Instruct (2048-dim, 6.2 GB, sparse, rlhf-pair)
+python ~/rosetta_analysis/extraction/extract.py --model Qwen/Qwen2.5-3B-Instruct && python ~/rosetta_analysis/gem/build_gems.py --model Qwen/Qwen2.5-3B-Instruct && python ~/rosetta_analysis/gem/ablate_gem_adaptive_width.py --model Qwen/Qwen2.5-3B-Instruct
+# gemma-2-2b (2304-dim, 5.1 GB, alternating attn, base)
+python ~/rosetta_analysis/extraction/extract.py --model google/gemma-2-2b && python ~/rosetta_analysis/gem/build_gems.py --model google/gemma-2-2b && python ~/rosetta_analysis/gem/ablate_gem_adaptive_width.py --model google/gemma-2-2b
+# gemma-2-2b-it (2304-dim, 5.1 GB, alternating attn, rlhf-pair)
+python ~/rosetta_analysis/extraction/extract.py --model google/gemma-2-2b-it && python ~/rosetta_analysis/gem/build_gems.py --model google/gemma-2-2b-it && python ~/rosetta_analysis/gem/ablate_gem_adaptive_width.py --model google/gemma-2-2b-it
+# opt-2.7b (2560-dim, 5.4 GB, redundant encoder, OPT scale step)
+python ~/rosetta_analysis/extraction/extract.py --model facebook/opt-2.7b && python ~/rosetta_analysis/gem/build_gems.py --model facebook/opt-2.7b && python ~/rosetta_analysis/gem/ablate_gem_adaptive_width.py --model facebook/opt-2.7b
+# ---
+# Qwen2.5-7B-Instruct (3584-dim, 14.5 GB, sparse, rlhf-pair; --batch-size 4)
+git -C ~/rosetta_analysis pull && python ~/rosetta_analysis/extraction/extract.py --model Qwen/Qwen2.5-7B-Instruct --batch-size 4 && python ~/rosetta_analysis/gem/build_gems.py --model Qwen/Qwen2.5-7B-Instruct && python ~/rosetta_analysis/gem/ablate_gem_adaptive_width.py --model Qwen/Qwen2.5-7B-Instruct --batch-size 4
+# Mistral-7B-Instruct-v0.3 (4096-dim, 14.5 GB, sparse, rlhf-pair; --batch-size 4)
+python ~/rosetta_analysis/extraction/extract.py --model mistralai/Mistral-7B-Instruct-v0.3 --batch-size 4 && python ~/rosetta_analysis/gem/build_gems.py --model mistralai/Mistral-7B-Instruct-v0.3 && python ~/rosetta_analysis/gem/ablate_gem_adaptive_width.py --model mistralai/Mistral-7B-Instruct-v0.3 --batch-size 4
+# gemma-2-9b-it (3584-dim, 18.5 GB, alternating attn, rlhf-pair; --batch-size 1)
+python ~/rosetta_analysis/extraction/extract.py --model google/gemma-2-9b-it --batch-size 1 && python ~/rosetta_analysis/gem/build_gems.py --model google/gemma-2-9b-it && python ~/rosetta_analysis/gem/ablate_gem_adaptive_width.py --model google/gemma-2-9b-it --batch-size 1
+# ---
+# Gated Llama models — requires HF token on GPU host (huggingface-cli login)
+# Llama-3.2-1B (2048-dim, 2.4 GB, sparse, gated)
+git -C ~/rosetta_analysis pull && python ~/rosetta_analysis/extraction/extract.py --model meta-llama/Llama-3.2-1B && python ~/rosetta_analysis/gem/build_gems.py --model meta-llama/Llama-3.2-1B && python ~/rosetta_analysis/gem/ablate_gem_adaptive_width.py --model meta-llama/Llama-3.2-1B
+# Llama-3.2-1B-Instruct (2048-dim, 2.4 GB, sparse, gated, rlhf-pair)
+python ~/rosetta_analysis/extraction/extract.py --model meta-llama/Llama-3.2-1B-Instruct && python ~/rosetta_analysis/gem/build_gems.py --model meta-llama/Llama-3.2-1B-Instruct && python ~/rosetta_analysis/gem/ablate_gem_adaptive_width.py --model meta-llama/Llama-3.2-1B-Instruct
+# Llama-3.2-3B (3072-dim, 6.4 GB, sparse, gated)
+python ~/rosetta_analysis/extraction/extract.py --model meta-llama/Llama-3.2-3B && python ~/rosetta_analysis/gem/build_gems.py --model meta-llama/Llama-3.2-3B && python ~/rosetta_analysis/gem/ablate_gem_adaptive_width.py --model meta-llama/Llama-3.2-3B
+# Llama-3.2-3B-Instruct (3072-dim, 6.4 GB, sparse, gated, rlhf-pair)
+python ~/rosetta_analysis/extraction/extract.py --model meta-llama/Llama-3.2-3B-Instruct && python ~/rosetta_analysis/gem/build_gems.py --model meta-llama/Llama-3.2-3B-Instruct && python ~/rosetta_analysis/gem/ablate_gem_adaptive_width.py --model meta-llama/Llama-3.2-3B-Instruct
+# ---
+# Llama-3.1-8B (4096-dim, 16.0 GB, sparse, gated, Cluster C; --batch-size 4)
+git -C ~/rosetta_analysis pull && python ~/rosetta_analysis/extraction/extract.py --model meta-llama/Llama-3.1-8B --batch-size 4 && python ~/rosetta_analysis/gem/build_gems.py --model meta-llama/Llama-3.1-8B && python ~/rosetta_analysis/gem/ablate_gem_adaptive_width.py --model meta-llama/Llama-3.1-8B --batch-size 4
+# Llama-3.1-8B-Instruct (4096-dim, 16.0 GB, sparse, gated, Cluster C, rlhf-pair; --batch-size 4)
+python ~/rosetta_analysis/extraction/extract.py --model meta-llama/Llama-3.1-8B-Instruct --batch-size 4 && python ~/rosetta_analysis/gem/build_gems.py --model meta-llama/Llama-3.1-8B-Instruct && python ~/rosetta_analysis/gem/ablate_gem_adaptive_width.py --model meta-llama/Llama-3.1-8B-Instruct --batch-size 4
+# ---
+# 4-bit only models — extract + build_gems only; ablation skipped (load_causal_lm lacks 4-bit)
+# Mixtral-8x7B-v0.1 (4096-dim, Cluster C MoE, 4-bit auto-detected; ~24 GB nf4, device_map=auto)
+git -C ~/rosetta_analysis pull && python ~/rosetta_analysis/extraction/extract.py --model mistralai/Mixtral-8x7B-v0.1 --batch-size 2 && python ~/rosetta_analysis/gem/build_gems.py --model mistralai/Mixtral-8x7B-v0.1
+# Qwen2.5-32B (5120-dim, Cluster E, 4-bit auto-detected; ~16 GB nf4; --batch-size 2)
+python ~/rosetta_analysis/extraction/extract.py --model Qwen/Qwen2.5-32B --batch-size 2 && python ~/rosetta_analysis/gem/build_gems.py --model Qwen/Qwen2.5-32B
+# ---
+# Aggregate all per-model adaptive-width results
+git -C ~/rosetta_analysis pull && python ~/rosetta_analysis/gem/ablate_gem_adaptive_width.py --aggregate-only
