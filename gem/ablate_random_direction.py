@@ -49,7 +49,7 @@ from rosetta_tools.extraction import extract_layer_activations
 from rosetta_tools.caz import compute_separation
 from rosetta_tools.ablation import DirectionalAblator, get_transformer_layers
 from rosetta_tools.dataset import load_concept_pairs, texts_by_label
-from rosetta_tools.gem import find_extraction_dir, discover_all_models
+from rosetta_tools.gem import find_extraction_dir, discover_all_models, load_gem
 from rosetta_tools.paths import ROSETTA_RESULTS
 
 logging.basicConfig(
@@ -106,15 +106,42 @@ def run_concept(
     n_seeds, device, n_pairs, batch_size,
 ) -> dict | None:
     """Run random-direction ablation at CAZ peak for one concept."""
-    existing_sweep = extraction_dir / f"ablation_global_sweep_{concept}.json"
-    if not existing_sweep.exists():
-        log.warning("  No global sweep for %s — skipping", concept)
+    abl_path = extraction_dir / f"ablation_gem_{concept}.json"
+    gem_path = extraction_dir / f"gem_{concept}.json"
+    if not abl_path.exists() or not gem_path.exists():
+        log.warning("  No ablation_gem/gem for %s — skipping", concept)
         return None
 
-    sweep = json.loads(existing_sweep.read_text())
-    caz_peak = sweep["caz_peak"]
-    baseline_final_sep = sweep["baseline_final_sep"]
-    concept_red = sweep["caz_global_sep_reduction"]
+    abl = json.loads(abl_path.read_text())
+    gem = load_gem(gem_path)
+    if gem.n_nodes == 0:
+        log.warning("  No GEM nodes for %s — skipping", concept)
+        return None
+
+    # Dominant node (highest caz_score) sets the target peak layer
+    dominant_node = max(gem.nodes, key=lambda n: n.caz_score)
+    caz_peak = dominant_node.caz_peak
+    n_layers = dominant_node.n_layers_total
+    model_id = abl["model_id"]
+
+    # Concept reduction from peak ablation section
+    peak = abl.get("peak", {})
+    concept_red = float(peak.get("final_sep_reduction", 0.0))
+
+    # Baseline final-layer separation: check peak then handoff per_layer
+    final_layer = n_layers - 1
+    baseline_final_sep = 0.0
+    for pl in (peak.get("per_layer", {}), abl.get("handoff", {}).get("per_layer", {})):
+        for k, v in pl.items():
+            if int(k) == final_layer and isinstance(v, dict):
+                baseline_final_sep = float(v.get("baseline_sep", 0.0))
+                break
+        if baseline_final_sep > 0:
+            break
+
+    if concept_red <= 0.0:
+        log.warning("  Concept reduction zero for %s — skipping", concept)
+        return None
 
     # Load pairs
     pairs = load_concept_pairs(concept, n=n_pairs or 200)
@@ -184,10 +211,10 @@ def run_concept(
              concept_red, random_mean, random_std, ratio, z_score, empirical_p)
 
     return {
-        "model_id":                  sweep["model_id"],
+        "model_id":                  model_id,
         "concept":                   concept,
         "caz_peak":                  caz_peak,
-        "n_layers":                  sweep["n_layers"],
+        "n_layers":                  n_layers,
         "hidden_dim":                hidden_dim,
         "n_random_seeds":            n_seeds,
         "baseline_final_sep":        round(baseline_final_sep, 4),
