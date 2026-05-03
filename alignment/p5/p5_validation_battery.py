@@ -44,7 +44,7 @@ from itertools import permutations
 from pathlib import Path
 
 import numpy as np
-from scipy.linalg import orthogonal_procrustes
+from scipy.linalg import orthogonal_procrustes, svd as _robust_svd
 from scipy.stats import mannwhitneyu
 
 REPO_ROOT = Path.home()
@@ -69,6 +69,77 @@ DEFAULT_DATA_ROOT = REPO_ROOT / "rosetta_data" / "models"
 DEFAULT_OUT_DIR = REPO_ROOT / "rosetta_data" / "results" / "p5_permutation"
 DATA_ROOT = DEFAULT_DATA_ROOT
 OUT_DIR = DEFAULT_OUT_DIR
+
+# Forensic log of every Procrustes call that needed the gesvd fallback or
+# fully failed. Populated by safe_procrustes() and dumped to JSON in main().
+SVD_FAILURES: list[dict] = []
+SVD_FAILURES_DIR: Path | None = None  # set in main() if --save-svd-failures
+
+
+def safe_procrustes(first: np.ndarray, second: np.ndarray, *,
+                    context: dict | None = None) -> np.ndarray | None:
+    """orthogonal_procrustes(first, second) with a gesvd fallback.
+
+    Mirrors scipy's closed-form solution: SVD of first.T @ second, then U @ Vt.
+    The default LAPACK driver (gesdd) occasionally fails to converge on
+    near-rank-deficient cross-covariance matrices. When that happens we retry
+    with the slower-but-robust gesvd driver. The fallback computes the *same*
+    decomposition — no math is changed. Each fallback (or hard failure) is
+    appended to SVD_FAILURES with full forensic context.
+
+    Returns the rotation R, or None if both drivers fail.
+    """
+    try:
+        R, _ = orthogonal_procrustes(first, second)
+        return R
+    except Exception as e_fast:
+        # Only catch numerical convergence failures — re-raise unrelated bugs.
+        msg = str(e_fast)
+        if "converge" not in msg.lower() and "SVD" not in msg:
+            raise
+        info = {
+            "context": context or {},
+            "shape_first": list(first.shape),
+            "shape_second": list(second.shape),
+            "fro_first": float(np.linalg.norm(first)),
+            "fro_second": float(np.linalg.norm(second)),
+            "any_nan": bool(np.isnan(first).any() or np.isnan(second).any()),
+            "any_inf": bool(np.isinf(first).any() or np.isinf(second).any()),
+            "gesdd_error": str(e_fast),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+        R: np.ndarray | None = None
+        try:
+            M = first.T @ second
+            U, S, Vt = _robust_svd(M, lapack_driver="gesvd")
+            R = U @ Vt
+            info["fallback"] = "gesvd_succeeded"
+            info["singular_value_max"] = float(S[0])
+            info["singular_value_min"] = float(S[-1])
+            denom = max(float(S[-1]), float(np.finfo(S.dtype).tiny))
+            info["condition_number"] = float(S[0] / denom)
+            log.warning(
+                "Procrustes gesdd failed (%s); recovered with gesvd. cond=%.2e ctx=%s",
+                e_fast, info["condition_number"], context,
+            )
+        except Exception as e_robust:
+            info["fallback"] = f"gesvd_also_failed: {e_robust}"
+            log.error("Procrustes BOTH gesdd and gesvd failed. ctx=%s", context)
+
+        if SVD_FAILURES_DIR is not None:
+            try:
+                stamp = info["timestamp"].replace(":", "-").replace("+00:00", "Z")
+                ctx_vals = "_".join(str(v) for v in (context or {}).values())
+                ctx_tag = "".join(c if c.isalnum() or c in "-_" else "_"
+                                  for c in ctx_vals)[:80]
+                fname = SVD_FAILURES_DIR / f"{stamp}_{ctx_tag}.npz"
+                np.savez_compressed(fname, first=first, second=second)
+                info["matrix_path"] = str(fname)
+            except Exception as e_save:
+                info["matrix_save_error"] = str(e_save)
+
+        SVD_FAILURES.append(info)
+        return R
 
 
 # ============================================================================
@@ -157,12 +228,11 @@ def fit_loco_rotation(cm_a: dict, cm_b: dict, held: str, n_common: int) -> np.nd
         blocks_b.append(interp_rows(cm_b[c]["dom_vecs"], n_common))
     A = np.vstack(blocks_a)
     B = np.vstack(blocks_b)
-    try:
-        R, _ = orthogonal_procrustes(B, A)
-        return R
-    except Exception as e:
-        log.warning("Procrustes failed: %s", e)
-        return None
+    return safe_procrustes(B, A, context={
+        "call": "fit_loco_rotation",
+        "held_concept": held,
+        "n_common": n_common,
+    })
 
 
 # ============================================================================
@@ -284,9 +354,15 @@ def run_propdepth_pipeline(
                         blocks_b.append(interp_rows(b_c["dom_vecs"], n_common))
                     A = np.vstack(blocks_a)
                     B = np.vstack(blocks_b)
-                    try:
-                        R, _ = orthogonal_procrustes(B, A)
-                    except Exception:
+                    R = safe_procrustes(B, A, context={
+                        "call": "run_propdepth_pipeline",
+                        "label": label,
+                        "model_a": name_a,
+                        "model_b": name_b,
+                        "dim": dim,
+                        "held_concept": held,
+                    })
+                    if R is None:
                         continue
                 else:
                     R = None
@@ -487,11 +563,19 @@ def main():
                     help="Number of random seeds for tests 2 and 3 (>1 builds null distribution)")
     ap.add_argument("--out-suffix", type=str, default="",
                     help="Suffix for output filenames, e.g. '_v2'")
+    ap.add_argument("--save-svd-failures", action="store_true",
+                    help="Save raw (A, B) matrices for any Procrustes call that "
+                         "needed the gesvd fallback or fully failed. Stored as "
+                         "compressed .npz under <out-dir>/svd_failures/.")
     args = ap.parse_args()
-    global DATA_ROOT, OUT_DIR
+    global DATA_ROOT, OUT_DIR, SVD_FAILURES_DIR
     DATA_ROOT = args.data_root
     OUT_DIR = args.out_dir
     OUT_DIR.mkdir(parents=True, exist_ok=True)
+    if args.save_svd_failures:
+        SVD_FAILURES_DIR = OUT_DIR / "svd_failures"
+        SVD_FAILURES_DIR.mkdir(parents=True, exist_ok=True)
+        log.info("SVD failure forensics enabled: %s", SVD_FAILURES_DIR)
     log.info("data_root=%s  out_dir=%s  n_seeds=%d", DATA_ROOT, OUT_DIR, args.n_seeds)
 
     overall_t0 = time.time()
@@ -608,6 +692,22 @@ def main():
     write_partial(f"test3_concept_shuffle{args.out_suffix}", results["test_3_concept_shuffle"])
 
     results["total_elapsed_seconds"] = time.time() - overall_t0
+
+    # SVD failure summary — counts both recovered (gesvd succeeded) and hard
+    # failures. Detailed entries dumped to a sidecar JSON for paper auditability.
+    n_recovered = sum(1 for f in SVD_FAILURES if f.get("fallback") == "gesvd_succeeded")
+    n_hard_fail = len(SVD_FAILURES) - n_recovered
+    results["svd_failures"] = {
+        "n_total": len(SVD_FAILURES),
+        "n_recovered_with_gesvd": n_recovered,
+        "n_hard_fail": n_hard_fail,
+    }
+    if SVD_FAILURES:
+        sidecar = OUT_DIR / f"p5_svd_failures{args.out_suffix}.json"
+        sidecar.write_text(json.dumps(SVD_FAILURES, indent=2))
+        log.info("SVD failure log: %s (recovered=%d hard=%d)",
+                 sidecar, n_recovered, n_hard_fail)
+
     out_path = OUT_DIR / f"p5_validation_battery{args.out_suffix}.json"
     out_path.write_text(json.dumps(results, indent=2))
     log.info("\n=== ALL TESTS DONE in %.1fs ===", results["total_elapsed_seconds"])
