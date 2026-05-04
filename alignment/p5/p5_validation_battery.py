@@ -653,6 +653,8 @@ def main():
                  seed, s.get("n_observations", 0), s.get("mean_delta", float("nan")),
                  s.get("mean_matched", float("nan")), s.get("mean_mismatched", float("nan")),
                  s.get("mannwhitney_p", float("nan")))
+        write_partial(f"test2_random_vector{args.out_suffix}_ckpt",
+                      {"n_seeds_done": seed_i + 1, "per_seed": test2_seed_results})
     results["test_2_random_vector"] = {
         "n_seeds": args.n_seeds,
         "per_seed": test2_seed_results,
@@ -683,6 +685,8 @@ def main():
                  seed, s.get("n_observations", 0), s.get("mean_delta", float("nan")),
                  s.get("mean_matched", float("nan")), s.get("mean_mismatched", float("nan")),
                  s.get("mannwhitney_p", float("nan")))
+        write_partial(f"test3_concept_shuffle{args.out_suffix}_ckpt",
+                      {"n_seeds_done": seed_i + 1, "per_seed": test3_seed_results})
     results["test_3_concept_shuffle"] = {
         "n_seeds": args.n_seeds,
         "per_seed": test3_seed_results,
