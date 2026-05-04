@@ -230,6 +230,16 @@ def main():
     log.info("Targets: %d model dir(s) × %d concept(s)",
              len(model_dirs), len(concepts))
 
+    # Smoke-test CUDA before looping 34 models — catches missing libs early.
+    try:
+        import torch
+        if torch.cuda.is_available():
+            torch.zeros(1).cuda()
+    except Exception as e:
+        log.error("CUDA init failed — aborting: %s", e)
+        sys.exit(1)
+
+    succeeded = 0
     for md in model_dirs:
         if not md.exists():
             log.warning("Skip missing model dir: %s", md)
@@ -237,11 +247,15 @@ def main():
         try:
             extract_one_model(md, concepts, args.limit,
                               args.batch_size, args.max_length, pairs_root)
+            succeeded += 1
         except Exception as e:
             log.error("FAILED on %s: %s", md.name, e)
             continue
 
-    log.info("All done.")
+    log.info("All done. %d/%d model(s) processed.", succeeded, len(model_dirs))
+    if succeeded == 0:
+        log.error("Zero models extracted — check CUDA and model dirs.")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
