@@ -147,7 +147,7 @@ def extract_one_model(model_dir: Path, concepts: list[str], limit: int,
         tokenizer = AutoTokenizer.from_pretrained(model_id)
         model = AutoModel.from_pretrained(
             model_id,
-            torch_dtype=torch.bfloat16,
+            dtype=torch.bfloat16,
             device_map="auto",
             low_cpu_mem_usage=True,
         )
