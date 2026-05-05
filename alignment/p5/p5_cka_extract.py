@@ -208,6 +208,11 @@ def extract_one_model(model_dir: Path, concepts: list[str], limit: int,
     gc.collect()
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
+    try:
+        from rosetta_tools.gpu_utils import purge_hf_cache
+        purge_hf_cache(model_id)
+    except Exception as e:
+        log.warning("purge_hf_cache failed for %s: %s", model_id, e)
 
 
 def main():
