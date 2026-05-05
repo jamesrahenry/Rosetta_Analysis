@@ -106,14 +106,23 @@ def model_id_from_dir(model_dir: Path) -> str:
     """Convert e.g. 'EleutherAI_pythia_6.9b' → 'EleutherAI/pythia-6.9b'.
 
     Handles the '_' → '/' (first occurrence) and '_' → '-' (rest) convention
-    used by extraction scripts in this project.
+    used by extraction scripts in this project.  Two-word org names (stored as
+    two underscore-separated tokens) require explicit listing here.
     """
+    # Orgs whose names contain a hyphen and are stored as two tokens in dir names.
+    TWO_WORD_ORGS = {
+        "meta_llama": "meta-llama",
+        "openai_community": "openai-community",
+    }
     name = model_dir.name
+    for prefix, hf_org in TWO_WORD_ORGS.items():
+        if name.startswith(prefix + "_"):
+            rest = name[len(prefix) + 1:].replace("_", "-")
+            return f"{hf_org}/{rest}"
     if "_" not in name:
         return name
     org, rest = name.split("_", 1)
     rest = rest.replace("_", "-")
-    # Special-case the openai_community → openai-community-style.
     return f"{org}/{rest}"
 
 
