@@ -264,6 +264,16 @@ def main():
             succeeded += 1
         except Exception as e:
             log.error("FAILED on %s: %s", md.name, e)
+            # Purge cache even on failure so a crashed model doesn't fill /tmp.
+            try:
+                import gc, torch
+                from rosetta_tools.gpu_utils import purge_hf_cache
+                gc.collect()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                purge_hf_cache(model_id_from_dir(md))
+            except Exception as pe:
+                log.warning("purge after failure failed for %s: %s", md.name, pe)
             continue
 
     log.info("All done. %d/%d model(s) processed.", succeeded, len(model_dirs))
