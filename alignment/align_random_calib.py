@@ -33,7 +33,7 @@ from pathlib import Path
 import numpy as np
 import torch
 from scipy.linalg import orthogonal_procrustes
-from transformers import AutoTokenizer
+from transformers import AutoModel, AutoTokenizer
 
 from rosetta_tools.gpu_utils import (
     get_device, get_dtype, release_model,
@@ -344,15 +344,22 @@ def extract_random_activations(
     texts = sentences[:n_random]
 
     log.info("  Loading %s for random-calibration extraction...", model_id)
-    load_4bit = requires_quantization(model_id) == "4bit"
     dtype = get_dtype(device)
+    bnb_config = None
+    if requires_quantization(model_id) == "4bit":
+        from transformers import BitsAndBytesConfig
+        bnb_config = BitsAndBytesConfig(
+            load_in_4bit=True, bnb_4bit_compute_dtype=torch.bfloat16,
+        )
 
     try:
         model = load_model_with_retry(
+            AutoModel,
             model_id,
             dtype=dtype,
+            device=device,
             device_map="auto" if device == "cuda" else None,
-            load_in_4bit=load_4bit,
+            quantization_config=bnb_config,
         )
         tokenizer = AutoTokenizer.from_pretrained(model_id)
     except Exception as e:
