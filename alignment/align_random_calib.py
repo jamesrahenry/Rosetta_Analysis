@@ -397,6 +397,11 @@ def extract_random_activations(
         gc.collect()
         if device == "cuda":
             torch.cuda.empty_cache()
+        try:
+            from rosetta_tools.gpu_utils import purge_hf_cache
+            purge_hf_cache(model_id)
+        except Exception as pe:
+            log.warning("  purge_hf_cache failed for %s: %s", model_id, pe)
 
     log.info("  Extracted random calibration for %d concepts", len(concept_activations))
     return concept_activations
