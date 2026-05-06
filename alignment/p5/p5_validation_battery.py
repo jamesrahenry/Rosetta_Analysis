@@ -554,6 +554,18 @@ def write_partial(name: str, payload):
     log.info("Saved partial: %s", p)
 
 
+def load_partial(name: str) -> dict | None:
+    """Return previously saved partial result, or None if not found/unreadable."""
+    p = OUT_DIR / f"p5_validation_{name}.json"
+    if not p.exists():
+        return None
+    try:
+        return json.loads(p.read_text())
+    except Exception as e:
+        log.warning("Could not load partial %s: %s", p, e)
+        return None
+
+
 def main():
     import argparse
     ap = argparse.ArgumentParser()
@@ -594,106 +606,155 @@ def main():
 
     # --- Test 4: no-rotation raw cosine (fast) ---
     log.info("\n========== TEST 4: no-rotation raw cosine ==========")
-    t0 = time.time()
-    rows = run_propdepth_pipeline(store, by_dim, "no-rot", rotate=False)
-    s = stats_from_cos_matrices(rows)
-    s["elapsed_seconds"] = time.time() - t0
-    s["pair_results"] = rows
-    results["test_4_no_rotation"] = s
-    write_partial("test4_no_rotation", s)
-    log.info("[no-rot] n=%d Δ=%+.4f matched=%.4f mismatched=%.4f p=%.2e",
-             s.get("n_observations", 0), s.get("mean_delta", float("nan")),
-             s.get("mean_matched", float("nan")), s.get("mean_mismatched", float("nan")),
-             s.get("mannwhitney_p", float("nan")))
+    if (cached := load_partial("test4_no_rotation")) is not None:
+        log.info("[no-rot] loaded from checkpoint — skipping")
+        results["test_4_no_rotation"] = cached
+        log.info("[no-rot] n=%d Δ=%+.4f matched=%.4f mismatched=%.4f",
+                 cached.get("n_observations", 0), cached.get("mean_delta", float("nan")),
+                 cached.get("mean_matched", float("nan")), cached.get("mean_mismatched", float("nan")))
+    else:
+        t0 = time.time()
+        rows = run_propdepth_pipeline(store, by_dim, "no-rot", rotate=False)
+        s = stats_from_cos_matrices(rows)
+        s["elapsed_seconds"] = time.time() - t0
+        s["pair_results"] = rows
+        results["test_4_no_rotation"] = s
+        write_partial("test4_no_rotation", s)
+        log.info("[no-rot] n=%d Δ=%+.4f matched=%.4f mismatched=%.4f p=%.2e",
+                 s.get("n_observations", 0), s.get("mean_delta", float("nan")),
+                 s.get("mean_matched", float("nan")), s.get("mean_mismatched", float("nan")),
+                 s.get("mannwhitney_p", float("nan")))
 
     # --- Test 5: depth-label permutation null (medium) ---
     log.info("\n========== TEST 5: depth-label permutation null ==========")
-    t0 = time.time()
-    s = run_depth_perm_null(store, by_dim)
-    s["elapsed_seconds"] = time.time() - t0
-    results["test_5_depth_perm_null"] = s
-    write_partial("test5_depth_perm_null", s)
-    log.info("[depth-perm] null mean Δ=%.4f std=%.4f p99=%.4f max=%.4f",
-             s.get("null_mean_delta", float("nan")),
-             s.get("null_std_delta", float("nan")),
-             s.get("null_p99", float("nan")),
-             s.get("null_max", float("nan")))
+    if (cached := load_partial("test5_depth_perm_null")) is not None:
+        log.info("[depth-perm] loaded from checkpoint — skipping")
+        results["test_5_depth_perm_null"] = cached
+        log.info("[depth-perm] null mean Δ=%.4f std=%.4f p99=%.4f max=%.4f",
+                 cached.get("null_mean_delta", float("nan")),
+                 cached.get("null_std_delta", float("nan")),
+                 cached.get("null_p99", float("nan")),
+                 cached.get("null_max", float("nan")))
+    else:
+        t0 = time.time()
+        s = run_depth_perm_null(store, by_dim)
+        s["elapsed_seconds"] = time.time() - t0
+        results["test_5_depth_perm_null"] = s
+        write_partial("test5_depth_perm_null", s)
+        log.info("[depth-perm] null mean Δ=%.4f std=%.4f p99=%.4f max=%.4f",
+                 s.get("null_mean_delta", float("nan")),
+                 s.get("null_std_delta", float("nan")),
+                 s.get("null_p99", float("nan")),
+                 s.get("null_max", float("nan")))
 
     # --- Test 1: windowed CKA (slow) ---
     log.info("\n========== TEST 1: windowed CKA ==========")
-    t0 = time.time()
-    rows = run_windowed_cka(store, by_dim)
-    s = stats_from_cos_matrices(rows)
-    s["elapsed_seconds"] = time.time() - t0
-    s["pair_results"] = rows
-    results["test_1_windowed_cka"] = s
-    write_partial("test1_windowed_cka", s)
-    log.info("[CKA] n=%d Δ=%+.4f matched=%.4f mismatched=%.4f p=%.2e",
-             s.get("n_observations", 0), s.get("mean_delta", float("nan")),
-             s.get("mean_matched", float("nan")), s.get("mean_mismatched", float("nan")),
-             s.get("mannwhitney_p", float("nan")))
+    if (cached := load_partial("test1_windowed_cka")) is not None:
+        log.info("[CKA] loaded from checkpoint — skipping")
+        results["test_1_windowed_cka"] = cached
+        log.info("[CKA] n=%d Δ=%+.4f matched=%.4f mismatched=%.4f",
+                 cached.get("n_observations", 0), cached.get("mean_delta", float("nan")),
+                 cached.get("mean_matched", float("nan")), cached.get("mean_mismatched", float("nan")))
+    else:
+        t0 = time.time()
+        rows = run_windowed_cka(store, by_dim)
+        s = stats_from_cos_matrices(rows)
+        s["elapsed_seconds"] = time.time() - t0
+        s["pair_results"] = rows
+        results["test_1_windowed_cka"] = s
+        write_partial("test1_windowed_cka", s)
+        log.info("[CKA] n=%d Δ=%+.4f matched=%.4f mismatched=%.4f p=%.2e",
+                 s.get("n_observations", 0), s.get("mean_delta", float("nan")),
+                 s.get("mean_matched", float("nan")), s.get("mean_mismatched", float("nan")),
+                 s.get("mannwhitney_p", float("nan")))
 
     # --- Test 2: random-vector control (slow, multi-seed) ---
     log.info("\n========== TEST 2: random-vector control (n_seeds=%d) ==========", args.n_seeds)
-    test2_seed_results = []
-    for seed_i in range(args.n_seeds):
-        seed = RNG_SEED + seed_i
-        log.info("[rand-vec] seed %d/%d (RNG=%d)", seed_i + 1, args.n_seeds, seed)
-        t0 = time.time()
-        rand_store = make_random_store(store, seed)
-        rows = run_propdepth_pipeline(rand_store, by_dim, f"rand-vec-s{seed}",
-                                      rotate=True)
-        s = stats_from_cos_matrices(rows)
-        s["seed"] = seed
-        s["elapsed_seconds"] = time.time() - t0
-        if seed_i == 0:
-            s["pair_results"] = rows  # only first to keep output size manageable
-        test2_seed_results.append(s)
-        log.info("[rand-vec seed %d] n=%d Δ=%+.4f matched=%.4f mismatched=%.4f p=%.2e",
-                 seed, s.get("n_observations", 0), s.get("mean_delta", float("nan")),
-                 s.get("mean_matched", float("nan")), s.get("mean_mismatched", float("nan")),
-                 s.get("mannwhitney_p", float("nan")))
-        write_partial(f"test2_random_vector{args.out_suffix}_ckpt",
-                      {"n_seeds_done": seed_i + 1, "per_seed": test2_seed_results})
-    results["test_2_random_vector"] = {
-        "n_seeds": args.n_seeds,
-        "per_seed": test2_seed_results,
-        "delta_across_seeds_mean": float(np.mean([r["mean_delta"] for r in test2_seed_results])),
-        "delta_across_seeds_std": float(np.std([r["mean_delta"] for r in test2_seed_results])) if args.n_seeds > 1 else 0.0,
-    }
-    write_partial(f"test2_random_vector{args.out_suffix}", results["test_2_random_vector"])
+    test2_final_name = f"test2_random_vector{args.out_suffix}"
+    test2_ckpt_name  = f"test2_random_vector{args.out_suffix}_ckpt"
+    if (cached := load_partial(test2_final_name)) is not None:
+        log.info("[rand-vec] loaded from checkpoint — skipping all seeds")
+        results["test_2_random_vector"] = cached
+    else:
+        ckpt = load_partial(test2_ckpt_name)
+        if ckpt is not None:
+            start_seed_i      = ckpt["n_seeds_done"]
+            test2_seed_results = ckpt["per_seed"]
+            log.info("[rand-vec] resuming from seed %d/%d", start_seed_i + 1, args.n_seeds)
+        else:
+            start_seed_i       = 0
+            test2_seed_results = []
+        for seed_i in range(start_seed_i, args.n_seeds):
+            seed = RNG_SEED + seed_i
+            log.info("[rand-vec] seed %d/%d (RNG=%d)", seed_i + 1, args.n_seeds, seed)
+            t0 = time.time()
+            rand_store = make_random_store(store, seed)
+            rows = run_propdepth_pipeline(rand_store, by_dim, f"rand-vec-s{seed}",
+                                          rotate=True)
+            s = stats_from_cos_matrices(rows)
+            s["seed"] = seed
+            s["elapsed_seconds"] = time.time() - t0
+            if seed_i == 0:
+                s["pair_results"] = rows  # only first to keep output size manageable
+            test2_seed_results.append(s)
+            log.info("[rand-vec seed %d] n=%d Δ=%+.4f matched=%.4f mismatched=%.4f p=%.2e",
+                     seed, s.get("n_observations", 0), s.get("mean_delta", float("nan")),
+                     s.get("mean_matched", float("nan")), s.get("mean_mismatched", float("nan")),
+                     s.get("mannwhitney_p", float("nan")))
+            write_partial(test2_ckpt_name,
+                          {"n_seeds_done": seed_i + 1, "per_seed": test2_seed_results})
+        results["test_2_random_vector"] = {
+            "n_seeds": args.n_seeds,
+            "per_seed": test2_seed_results,
+            "delta_across_seeds_mean": float(np.mean([r["mean_delta"] for r in test2_seed_results])),
+            "delta_across_seeds_std": float(np.std([r["mean_delta"] for r in test2_seed_results])) if args.n_seeds > 1 else 0.0,
+        }
+        write_partial(test2_final_name, results["test_2_random_vector"])
 
     # --- Test 3: concept-label shuffle (slow, multi-seed) ---
     log.info("\n========== TEST 3: concept-label shuffle (n_seeds=%d) ==========", args.n_seeds)
-    test3_seed_results = []
-    for seed_i in range(args.n_seeds):
-        seed = RNG_SEED + seed_i
-        log.info("[concept-shuf] seed %d/%d (RNG=%d)", seed_i + 1, args.n_seeds, seed)
-        t0 = time.time()
-        cp = make_concept_perm(store, seed)
-        rows = run_propdepth_pipeline(store, by_dim, f"concept-shuf-s{seed}",
-                                      rotate=True,
-                                      concept_perm_per_model=cp)
-        s = stats_from_cos_matrices(rows)
-        s["seed"] = seed
-        s["elapsed_seconds"] = time.time() - t0
-        s["concept_perm_per_model"] = cp
-        if seed_i == 0:
-            s["pair_results"] = rows
-        test3_seed_results.append(s)
-        log.info("[concept-shuf seed %d] n=%d Δ=%+.4f matched=%.4f mismatched=%.4f p=%.2e",
-                 seed, s.get("n_observations", 0), s.get("mean_delta", float("nan")),
-                 s.get("mean_matched", float("nan")), s.get("mean_mismatched", float("nan")),
-                 s.get("mannwhitney_p", float("nan")))
-        write_partial(f"test3_concept_shuffle{args.out_suffix}_ckpt",
-                      {"n_seeds_done": seed_i + 1, "per_seed": test3_seed_results})
-    results["test_3_concept_shuffle"] = {
-        "n_seeds": args.n_seeds,
-        "per_seed": test3_seed_results,
-        "delta_across_seeds_mean": float(np.mean([r["mean_delta"] for r in test3_seed_results])),
-        "delta_across_seeds_std": float(np.std([r["mean_delta"] for r in test3_seed_results])) if args.n_seeds > 1 else 0.0,
-    }
-    write_partial(f"test3_concept_shuffle{args.out_suffix}", results["test_3_concept_shuffle"])
+    test3_final_name = f"test3_concept_shuffle{args.out_suffix}"
+    test3_ckpt_name  = f"test3_concept_shuffle{args.out_suffix}_ckpt"
+    if (cached := load_partial(test3_final_name)) is not None:
+        log.info("[concept-shuf] loaded from checkpoint — skipping all seeds")
+        results["test_3_concept_shuffle"] = cached
+    else:
+        ckpt = load_partial(test3_ckpt_name)
+        if ckpt is not None:
+            start_seed_i       = ckpt["n_seeds_done"]
+            test3_seed_results = ckpt["per_seed"]
+            log.info("[concept-shuf] resuming from seed %d/%d", start_seed_i + 1, args.n_seeds)
+        else:
+            start_seed_i       = 0
+            test3_seed_results = []
+        for seed_i in range(start_seed_i, args.n_seeds):
+            seed = RNG_SEED + seed_i
+            log.info("[concept-shuf] seed %d/%d (RNG=%d)", seed_i + 1, args.n_seeds, seed)
+            t0 = time.time()
+            cp = make_concept_perm(store, seed)
+            rows = run_propdepth_pipeline(store, by_dim, f"concept-shuf-s{seed}",
+                                          rotate=True,
+                                          concept_perm_per_model=cp)
+            s = stats_from_cos_matrices(rows)
+            s["seed"] = seed
+            s["elapsed_seconds"] = time.time() - t0
+            s["concept_perm_per_model"] = cp
+            if seed_i == 0:
+                s["pair_results"] = rows
+            test3_seed_results.append(s)
+            log.info("[concept-shuf seed %d] n=%d Δ=%+.4f matched=%.4f mismatched=%.4f p=%.2e",
+                     seed, s.get("n_observations", 0), s.get("mean_delta", float("nan")),
+                     s.get("mean_matched", float("nan")), s.get("mean_mismatched", float("nan")),
+                     s.get("mannwhitney_p", float("nan")))
+            write_partial(test3_ckpt_name,
+                          {"n_seeds_done": seed_i + 1, "per_seed": test3_seed_results})
+        results["test_3_concept_shuffle"] = {
+            "n_seeds": args.n_seeds,
+            "per_seed": test3_seed_results,
+            "delta_across_seeds_mean": float(np.mean([r["mean_delta"] for r in test3_seed_results])),
+            "delta_across_seeds_std": float(np.std([r["mean_delta"] for r in test3_seed_results])) if args.n_seeds > 1 else 0.0,
+        }
+        write_partial(test3_final_name, results["test_3_concept_shuffle"])
 
     results["total_elapsed_seconds"] = time.time() - overall_t0
 
