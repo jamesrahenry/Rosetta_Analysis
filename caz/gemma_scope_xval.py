@@ -46,33 +46,21 @@ log = logging.getLogger(__name__)
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CAZ_ROOT  = Path(__file__).resolve().parents[1]
 
-def _find_feature_lib() -> Path:
-    """Locate the feature library — submodule layout or standalone build."""
-    candidates = [
-        REPO_ROOT / "Rosetta_Feature_Library",   # submodule: Rosetta_Program/Rosetta_Feature_Library
-        Path.home() / "Rosetta_Feature_Library",  # standalone clone alongside caz_scaling
-        CAZ_ROOT / "feature_library",             # legacy: built inside caz_scaling/
-    ]
-    for p in candidates:
+from rosetta_tools.paths import ROSETTA_MODELS, ROSETTA_RESULTS
+RESULTS_DIR  = ROSETTA_RESULTS
+
+# Feature library kept as optional fallback only — primary source is ROSETTA_MODELS.
+def _find_feature_lib() -> Path | None:
+    for p in [
+        REPO_ROOT / "Rosetta_Feature_Library",
+        Path.home() / "Rosetta_Feature_Library",
+        CAZ_ROOT / "feature_library",
+    ]:
         if (p / "cazs").exists():
             return p
-    return candidates[0]  # return primary path so error message is useful
+    return None
 
-def _find_pairs_dir() -> Path:
-    """Locate the concept pairs directory."""
-    candidates = [
-        REPO_ROOT / "Rosetta_Concept_Pairs" / "pairs" / "raw" / "v1",
-        Path.home() / "Rosetta_Concept_Pairs" / "pairs" / "raw" / "v1",
-    ]
-    for p in candidates:
-        if p.exists():
-            return p
-    return candidates[0]
-
-from rosetta_tools.paths import ROSETTA_RESULTS
-FEATURE_LIB  = _find_feature_lib()
-PAIRS_DIR    = _find_pairs_dir()
-RESULTS_DIR  = ROSETTA_RESULTS
+FEATURE_LIB = _find_feature_lib()
 
 MODEL_ID      = "google/gemma-2-2b"
 SAE_RELEASE   = "gemma-scope-2b-pt-res"
@@ -90,34 +78,49 @@ CONCEPTS = [
 
 def load_pairs(concept: str, n: int) -> tuple[list[str], list[str]]:
     """Load up to n positive and n negative texts for a concept."""
-    path = PAIRS_DIR / f"{concept}_consensus_pairs.jsonl"
-    if not path.exists():
-        log.warning("No pairs file for %s", concept)
-        return [], []
-
-    pos, neg = [], []
-    with open(path) as f:
-        for line in f:
-            item = json.loads(line)
-            if item["label"] == 1 and len(pos) < n:
-                pos.append(item["text"])
-            elif item["label"] == 0 and len(neg) < n:
-                neg.append(item["text"])
-            if len(pos) >= n and len(neg) >= n:
-                break
-
+    from rosetta_tools.dataset import load_concept_pairs
+    pairs = load_concept_pairs(concept, n=n, split="all")
+    pos = [p.pos_text for p in pairs[:n]]
+    neg = [p.neg_text for p in pairs[:n]]
     log.info("  %s: %d positive, %d negative pairs", concept, len(pos), len(neg))
     return pos, neg
 
 
 def load_caz_peaks(concept: str) -> list[dict]:
-    """Load CAZ regions for Gemma-2-2b for a given concept."""
-    path = FEATURE_LIB / "cazs" / concept / "gemma-2-2b.json"
-    if not path.exists():
-        log.warning("No CAZ data for %s/gemma-2-2b", concept)
-        return []
-    data = json.loads(path.read_text())
-    return data.get("regions", [])
+    """Load CAZ regions for Gemma-2-2b.
+
+    Primary: ROSETTA_MODELS/google_gemma_2_2b/caz_{concept}.json (post-sweep).
+    Fallback: Rosetta_Feature_Library cazs/ directory (legacy).
+    """
+    slug = "google_gemma_2_2b"
+    caz_path = ROSETTA_MODELS / slug / f"caz_{concept}.json"
+
+    if caz_path.exists():
+        from rosetta_tools.caz import find_caz_regions_scored, LayerMetrics
+        d = json.loads(caz_path.read_text())
+        metrics = [
+            LayerMetrics(
+                layer=m["layer"],
+                separation=m["separation_fisher"],
+                coherence=m.get("coherence", 0.0),
+                velocity=m.get("velocity", 0.0),
+            )
+            for m in d["layer_data"]["metrics"]
+        ]
+        profile = find_caz_regions_scored(metrics)
+        return [
+            {"peak_layer": r.peak, "caz_score": r.caz_score,
+             "start_layer": r.start, "end_layer": r.end}
+            for r in profile.regions
+        ]
+
+    if FEATURE_LIB is not None:
+        path = FEATURE_LIB / "cazs" / concept / "gemma-2-2b.json"
+        if path.exists():
+            return json.loads(path.read_text()).get("regions", [])
+
+    log.warning("No CAZ data for %s/gemma-2-2b (run extraction sweep first)", concept)
+    return []
 
 
 def concept_eigenvectors(
@@ -365,21 +368,14 @@ def run(args):
     out_dir.mkdir(parents=True, exist_ok=True)
 
     # ── 0. Validate required data paths ──────────────────────────────────────
-    missing = []
-    if not PAIRS_DIR.exists():
-        missing.append(f"Concept pairs: {PAIRS_DIR}")
-    if not FEATURE_LIB.exists():
-        missing.append(f"Feature library: {FEATURE_LIB}")
-    if missing:
-        for m in missing:
-            log.error("MISSING: %s", m)
-        log.error(
-            "Required data repos not found. Clone them alongside caz_scaling:\n"
-            "  git clone git@github.com:jamesrahenry/Rosetta_Concept_Pairs.git ~/Rosetta_Concept_Pairs\n"
-            "  git clone git@github.com:jamesrahenry/Rosetta_Feature_Library.git ~/Rosetta_Feature_Library\n"
-            "Or rsync from dev: rsync -a <dev>:~/Source/Rosetta_Program/Rosetta_Concept_Pairs ~/Rosetta_Concept_Pairs"
+    gemma_dir = ROSETTA_MODELS / "google_gemma_2_2b"
+    if not gemma_dir.exists():
+        log.warning(
+            "ROSETTA_MODELS/google_gemma_2_2b not found — CAZ peaks will be empty. "
+            "Run the extraction sweep first: python extraction/extract.py --prh-proxy"
         )
-        raise SystemExit(1)
+    if FEATURE_LIB is None:
+        log.info("Feature library not found — using ROSETTA_MODELS for CAZ peaks (expected)")
 
     concepts = [args.concept] if args.concept else CONCEPTS
 
