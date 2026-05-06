@@ -12,10 +12,9 @@ Three-panel figure:
 Defaults to GPT-2-XL (48 layers) where the baton-pass is clearest.
 
 Usage:
-    cd caz_scaling
-    python src/viz_baton_pass.py
-    python src/viz_baton_pass.py --model gpt2_openai_community_gpt2_xl_20260401_184059
-    python src/viz_baton_pass.py --out results/baton_pass/baton_pass_paper.png
+    python viz_baton_pass.py
+    python viz_baton_pass.py --model openai-community/gpt2-xl
+    python viz_baton_pass.py --out ~/Source/Rosetta_Program/papers/caz-validation/figures/fig_baton_pass.png
 
 Written: 2026-04-11 UTC
 """
@@ -35,10 +34,10 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).parent))
 from viz_style import concept_color, THEME, layer_ticks, apply_theme
+from rosetta_tools.paths import ROSETTA_MODELS
 
-CAZ_ROOT    = Path(__file__).resolve().parents[1]
-RESULTS_DIR = CAZ_ROOT / "results"
-DEFAULT_MODEL = "gpt2_openai_community_gpt2_xl_20260401_184059"
+DEFAULT_MODEL_ID = "openai-community/gpt2-xl"
+PAPERS_DIR = Path.home() / "Source" / "Rosetta_Program" / "papers" / "caz-validation" / "figures"
 
 CONCEPTS = ["causation", "certainty", "credibility", "moral_valence",
             "negation", "sentiment", "temporal_order"]
@@ -53,8 +52,13 @@ HANDOFF_PAIRS = [
 ]
 
 
-def load_concept(mdir: Path, concept: str) -> dict:
-    f = mdir / f"caz_{concept}.json"
+def find_model_dir(model_id: str) -> Path:
+    slug = model_id.replace("/", "_").replace("-", "_").replace(".", "_")
+    return ROSETTA_MODELS / slug
+
+
+def load_concept(model_dir: Path, concept: str) -> dict:
+    f = model_dir / f"caz_{concept}.json"
     d = json.loads(f.read_text())
     metrics = d["layer_data"]["metrics"]
     return {
@@ -72,7 +76,7 @@ def smooth(v: np.ndarray, k: int = 2) -> np.ndarray:
 
 
 def run(args) -> None:
-    mdir = RESULTS_DIR / args.model
+    mdir = find_model_dir(args.model)
     data = {}
     for c in CONCEPTS:
         try:
@@ -273,9 +277,10 @@ def run(args) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Baton-pass velocity X-crossing figure")
-    parser.add_argument("--model", default=DEFAULT_MODEL)
+    parser.add_argument("--model", default=DEFAULT_MODEL_ID,
+                        help="Model ID (e.g. openai-community/gpt2-xl)")
     parser.add_argument(
-        "--out", default=str(RESULTS_DIR / "baton_pass" / "baton_pass_paper.png"),
+        "--out", default=str(PAPERS_DIR / "fig_baton_pass.png"),
     )
     run(parser.parse_args())
 

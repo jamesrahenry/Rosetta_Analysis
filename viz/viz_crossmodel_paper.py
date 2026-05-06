@@ -9,9 +9,8 @@ Like viz_concept_crossmodel.py but optimized for paper inclusion:
   - Saves directly to papers/caz-validation/figures/
 
 Usage:
-    cd caz_scaling
-    python src/viz_crossmodel_paper.py --concept negation
-    python src/viz_crossmodel_paper.py --concept negation --out ../../papers/caz-validation/figures/fig_crossmodel_negation.png
+    python viz_crossmodel_paper.py --concept negation
+    python viz_crossmodel_paper.py --concept negation --out ~/Source/Rosetta_Program/papers/caz-validation/figures/fig_crossmodel_negation.png
 
 Written: 2026-04-11 UTC
 """
@@ -38,14 +37,13 @@ from viz_style import (
     FAMILY_COLORS, FAMILY_MAP, FAMILY_ORDER, sort_models, model_label,
     THEME, layer_ticks,
 )
+from rosetta_tools.paths import ROSETTA_MODELS
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s",
                     datefmt="%H:%M:%S")
 log = logging.getLogger(__name__)
 
-CAZ_ROOT    = Path(__file__).resolve().parents[1]
-RESULTS_DIR = CAZ_ROOT / "results"
-PAPERS_DIR  = CAZ_ROOT.parent / "papers" / "caz-validation" / "figures"
+PAPERS_DIR = Path.home() / "Source" / "Rosetta_Program" / "papers" / "caz-validation" / "figures"
 
 GRID_CLR  = THEME["grid"]
 SPINE_CLR = THEME["spine"]
@@ -54,76 +52,43 @@ CKA_CLR   = THEME["cka_line"]
 N_COLS    = 4
 
 
-def find_run_dir(model_id: str) -> Path | None:
-    """Find most-recent result dir for this model_id. CKA files not required."""
-    for d in sorted(RESULTS_DIR.iterdir(), reverse=True):
-        sf = d / "run_summary.json"
-        if d.is_dir() and sf.exists():
-            try:
-                if json.loads(sf.read_text()).get("model_id") == model_id:
-                    return d
-            except Exception:
-                continue
-    return None
+def find_model_dir(model_id: str) -> Path | None:
+    slug = model_id.replace("/", "_").replace("-", "_").replace(".", "_")
+    d = ROSETTA_MODELS / slug
+    return d if d.exists() else None
 
 
 def load_concept_for_model(model_id: str, concept: str) -> dict | None:
-    run_dir = find_run_dir(model_id)
-    if not run_dir:
+    model_dir = find_model_dir(model_id)
+    if not model_dir:
         return None
-    caz_file = run_dir / f"caz_{concept}.json"
+    caz_file = model_dir / f"caz_{concept}.json"
     if not caz_file.exists():
         return None
     caz     = json.loads(caz_file.read_text())
     metrics = caz["layer_data"]["metrics"]
-
-    # CKA file is optional — older runs (e.g. gpt2/medium/large) lack it.
-    cka_adj        = []
-    fisher_regions = []
-    cka_file = run_dir / f"cka_{concept}.json"
-    if cka_file.exists():
-        cka            = json.loads(cka_file.read_text())
-        cka_adj        = cka.get("cka_adjacent", [])
-        fisher_regions = cka.get("caz_regions", [])
 
     return {
         "model_id":       model_id,
         "n_layers":       int(caz["n_layers"]),
         "layers":         np.array([m["layer"] for m in metrics]),
         "separation":     np.array([m["separation_fisher"] for m in metrics]),
-        "cka_adj":        cka_adj,
-        "fisher_regions": fisher_regions,
+        "cka_adj":        [],
+        "fisher_regions": [],
         "peak_layer":     caz["layer_data"].get("peak_layer"),   # fallback peak
     }
 
 
 def load_coasting_for_model(model_id: str, concept: str) -> list[dict]:
-    pm = RESULTS_DIR / "coasting_analysis" / "per_model.json"
-    if not pm.exists():
-        return []
-    data = json.loads(pm.read_text())
-    for m in data:
-        if m["model_id"] == model_id:
-            return m["concept_results"].get(concept, {}).get("boundary_comparisons", [])
+    # coasting_analysis data not available in rosetta_data structure
     return []
 
 
 def all_model_ids() -> list[str]:
     """
-    Return all model IDs that appear in FAMILY_MAP AND have a result dir.
-    Falls back to coasting_analysis list if the results dir scan finds nothing.
+    Return all model IDs that appear in FAMILY_MAP AND have a dir in ROSETTA_MODELS.
     """
-    found = []
-    for mid in FAMILY_MAP:
-        if find_run_dir(mid) is not None:
-            found.append(mid)
-    if found:
-        return found
-    # Fallback: coasting_analysis list (subset only)
-    pm = RESULTS_DIR / "coasting_analysis" / "per_model.json"
-    if pm.exists():
-        return [m["model_id"] for m in json.loads(pm.read_text())]
-    return []
+    return [mid for mid in FAMILY_MAP if find_model_dir(mid) is not None]
 
 
 def build_grouped_slots(rows: list[dict]) -> list[dict | None]:

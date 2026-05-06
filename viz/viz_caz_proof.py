@@ -11,13 +11,13 @@ Shows S(l) curve for credibility in GPT-2-large with:
 Output: papers/caz-validation/figures/fig_caz_proof.pdf and .png
 
 Usage:
-    cd caz_scaling/
-    python src/viz_caz_proof.py
+    python viz_caz_proof.py
 """
 
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 import matplotlib
@@ -26,16 +26,16 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 import matplotlib.ticker
 import numpy as np
+sys.path.insert(0, str(Path(__file__).parent))
 from viz_style import CAZ_CAT_COLORS, CAZ_CAT_FILL, CAZ_CAT_LABELS, caz_score_cat, THEME
+from rosetta_tools.paths import ROSETTA_MODELS
+from rosetta_tools.caz import find_caz_regions_scored, LayerMetrics
 
 # ── Paths ──────────────────────────────────────────────────────────────────────
-ROOT      = Path(__file__).resolve().parents[1]
-RESULTS   = ROOT / "results"
-PAPER_FIG = ROOT.parent / "papers" / "caz-validation" / "figures"
+PAPER_FIG = Path.home() / "Source" / "Rosetta_Program" / "papers" / "caz-validation" / "figures"
 PAPER_FIG.mkdir(parents=True, exist_ok=True)
 
-MODEL_DIR = RESULTS / "gpt2_openai_community_gpt2_large_20260401_184455"
-LIB_FILE  = ROOT / "feature_library" / "cazs" / "credibility" / "gpt2-large.json"
+MODEL_DIR = ROSETTA_MODELS / "openai_community_gpt2_large"
 
 # ── Score category aliases (canonical definitions live in viz_style.py) ───────
 CAT_COLORS = CAZ_CAT_COLORS
@@ -45,26 +45,48 @@ score_to_cat = caz_score_cat
 
 
 def load_data():
-    """Load per-layer metrics, ablation, and feature library CAZ regions."""
+    """Load per-layer metrics, ablation, and detect CAZ regions via rosetta_tools."""
     caz  = json.loads((MODEL_DIR / "caz_credibility.json").read_text())
-    abl  = json.loads((MODEL_DIR / "ablation_credibility.json").read_text())
-    lib  = json.loads(LIB_FILE.read_text())
 
-    metrics = caz["layer_data"]["metrics"]
-    n_layers = len(metrics)
+    raw_metrics = caz["layer_data"]["metrics"]
+    n_layers = len(raw_metrics)
 
-    depths   = np.array([m["layer"] / (n_layers - 1) * 100 for m in metrics])
-    seps     = np.array([m["separation_fisher"] for m in metrics])
-    vels     = np.array([m["velocity"] for m in metrics])
-    cohs     = np.array([m["coherence"] for m in metrics])
+    depths   = np.array([m["layer"] / (n_layers - 1) * 100 for m in raw_metrics])
+    seps     = np.array([m["separation_fisher"] for m in raw_metrics])
+    vels     = np.array([m["velocity"] for m in raw_metrics])
+    cohs     = np.array([m["coherence"] for m in raw_metrics])
 
-    # ablation suppression by layer index
-    abl_by_layer = {a["layer"]: a["separation_reduction"] for a in abl["layers"]}
+    # ablation suppression by layer index (graceful — file may not exist)
+    abl_by_layer: dict[int, float] = {}
+    abl_file = MODEL_DIR / "ablation_credibility.json"
+    if abl_file.exists():
+        abl = json.loads(abl_file.read_text())
+        abl_by_layer = {a["layer"]: a["separation_reduction"] for a in abl["layers"]}
 
-    regions = lib["regions"]
-    for r in regions:
-        r["category"] = score_to_cat(r["caz_score"])
-        r["ablation"] = abl_by_layer.get(r["peak_layer"], None)
+    # Build LayerMetrics list and detect regions via rosetta_tools
+    layer_metrics = [
+        LayerMetrics(
+            layer=m["layer"],
+            separation=m["separation_fisher"],
+            coherence=m["coherence"],
+            velocity=m["velocity"],
+        )
+        for m in raw_metrics
+    ]
+    profile = find_caz_regions_scored(layer_metrics)
+
+    # Convert CAZRegion objects to the dict format expected by build_figure
+    regions = []
+    for r in profile.regions:
+        regions.append({
+            "start_layer": r.start,
+            "peak_layer":  r.peak,
+            "end_layer":   r.end,
+            "caz_score":   r.caz_score,
+            "peak_separation": r.peak_separation,
+            "category":    score_to_cat(r.caz_score),
+            "ablation":    abl_by_layer.get(r.peak, None),
+        })
 
     return depths, seps, vels, cohs, regions, n_layers
 

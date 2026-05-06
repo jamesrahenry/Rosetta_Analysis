@@ -9,9 +9,8 @@ Generates a tighter version of the combined peak-depth heatmap:
   - Nicer model labels (e.g. "Pythia-1.4B" instead of "pythia-1.4b")
 
 Usage:
-    cd caz_scaling
-    python src/viz_peak_depth_paper.py
-    python src/viz_peak_depth_paper.py --out ../../papers/caz-validation/figures/fig_peak_depth_heatmap.png
+    python viz_peak_depth_paper.py
+    python viz_peak_depth_paper.py --out ~/Source/Rosetta_Program/papers/caz-validation/figures/fig_peak_depth_heatmap.png
 
 Written: 2026-04-11 UTC
 """
@@ -30,10 +29,9 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).parent))
 from viz_style import FAMILY_MAP, FAMILY_COLORS, FAMILY_ORDER, sort_models, model_label, THEME
+from rosetta_tools.paths import ROSETTA_MODELS
 
-CAZ_ROOT    = Path(__file__).resolve().parents[1]
-RESULTS_DIR = CAZ_ROOT / "results"
-PAPERS_DIR  = CAZ_ROOT.parent / "papers" / "caz-validation" / "figures"
+PAPERS_DIR = Path.home() / "Source" / "Rosetta_Program" / "papers" / "caz-validation" / "figures"
 
 CONCEPT_ORDER = [
     "temporal_order", "causation",
@@ -52,20 +50,14 @@ CONCEPT_LABELS = {
 }
 
 
-def discover_result_dirs() -> list[Path]:
-    """Return model result dirs (must have run_summary.json with model_id)."""
+def discover_model_dirs() -> list[Path]:
+    """Return model dirs in ROSETTA_MODELS that have at least one caz_*.json."""
     dirs = []
-    if not RESULTS_DIR.exists():
+    if not ROSETTA_MODELS.exists():
         return dirs
-    for d in sorted(RESULTS_DIR.iterdir()):
-        if d.is_dir() and (d / "run_summary.json").exists():
-            try:
-                import json as _json
-                summary = _json.loads((d / "run_summary.json").read_text())
-                if "model_id" in summary:
-                    dirs.append(d)
-            except Exception:
-                continue
+    for d in sorted(ROSETTA_MODELS.iterdir()):
+        if d.is_dir() and any(d.glob("caz_*.json")):
+            dirs.append(d)
     return dirs
 
 
@@ -107,7 +99,7 @@ def build_pivot(dirs: list[Path]) -> "pd.DataFrame":
 def run(args) -> None:
     import pandas as pd
 
-    dirs   = discover_result_dirs()
+    dirs   = discover_model_dirs()
     pivot  = build_pivot(dirs)
 
     n_rows = len(pivot)
