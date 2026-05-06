@@ -26,8 +26,8 @@ import numpy as np
 
 log = logging.getLogger(__name__)
 
-RESULTS_DIR = Path("~/Source/Rosetta_Program/rosetta_data/cia_trajectory").expanduser()
-PROBE_DIR   = Path("~/Source/Concept_Integrity_Auditor/probes").expanduser()
+RESULTS_DIR = Path.home() / "rosetta_data" / "cia_trajectory"
+PROBE_DIR   = Path.home() / "Concept_Integrity_Auditor" / "probes"
 
 # Layer counts per model (post-embedding, matching train_acts[1:] indexing)
 MODEL_N_LAYERS = {

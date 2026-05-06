@@ -76,8 +76,8 @@ try:
 except ImportError:
     _rt = next(
         (p for p in [
-            Path.home() / "Source" / "Rosetta_Program" / "rosetta_tools",
             Path.home() / "rosetta_tools",
+            Path.home() / "Source" / "Rosetta_Program" / "rosetta_tools",
         ] if p.exists()),
         None,
     )
