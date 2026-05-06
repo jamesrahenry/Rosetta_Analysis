@@ -297,11 +297,14 @@ def run_model(model_id: str, concepts: list[str], args, device_override: str | N
     log.info("  Disk free: %.1f GiB", disk_free_gib())
     tokenizer = AutoTokenizer.from_pretrained(model_id)
 
-    # Models >20 GB bf16 span both L4s via pipeline parallelism (device_map="auto").
+    # Models >12 GB bf16 span both L4s via pipeline parallelism (device_map="auto").
+    # Threshold lowered from 20 → 12: Cluster C models (~14 GB) OOM on a single
+    # 22 GB L4 once forward-pass activation tensors are added; spreading across
+    # both GPUs gives each ~7 GB model weight + ~15 GB headroom for activations.
     # Input tensors go to cuda:0 (where the embedding layer always lands).
     model_vram = _registry_vram(model_id)
     n_gpus = torch.cuda.device_count() if device.startswith("cuda") else 1
-    use_multi_gpu = (not load_8bit and not load_4bit) and model_vram > 20.0 and n_gpus > 1
+    use_multi_gpu = (not load_8bit and not load_4bit) and model_vram > 12.0 and n_gpus > 1
 
     if load_4bit:
         log.info("4-bit nf4 quantization (model_id=%s)", model_id)
