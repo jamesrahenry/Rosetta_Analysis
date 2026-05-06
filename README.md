@@ -14,7 +14,7 @@ alignment/    Cross-architecture Procrustes alignment — PRH paper pipeline
 caz/          CAZ detection and analysis — deep dive, ablation controls, CKA validation
 gem/          GEM (Geometric Evolution Map) — assembly zone ablation and diagnostics
 viz/          Visualization scripts for all three paper threads
-jobs/         GPU job files for the Hopper/daemon queue
+jobs/         GPU job definitions for the Hopper/daemon queue (runner scripts are in rosetta_tools/bin/)
 ```
 
 ## Dependencies
