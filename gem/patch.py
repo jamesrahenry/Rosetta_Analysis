@@ -350,20 +350,36 @@ def run_model(model_id: str, concepts: list[str], args) -> None:
 
     tokenizer = AutoTokenizer.from_pretrained(model_id)
 
-    if args.load_in_8bit:
+    from rosetta_tools.models import vram_gb as _registry_vram
+    model_vram = _registry_vram(model_id)
+    single_gpu_vram = 22.0
+    explicit_8bit = args.load_in_8bit
+    auto_8bit = (not explicit_8bit) and model_vram > single_gpu_vram
+    use_8bit = explicit_8bit or auto_8bit
+
+    if use_8bit:
         try:
             import accelerate  # noqa: F401
             from transformers import BitsAndBytesConfig
         except ImportError as e:
             raise SystemExit(
-                f"--load-in-8bit requires accelerate and bitsandbytes: {e}\n"
+                f"8-bit loading requires accelerate and bitsandbytes: {e}\n"
                 "  pip install accelerate bitsandbytes"
             ) from e
         bnb_config = BitsAndBytesConfig(load_in_8bit=True)
+        if auto_8bit:
+            log.info("Large model (%.0f GB bf16 > %.0f GB single GPU): auto 8-bit",
+                     model_vram, single_gpu_vram)
         model = AutoModel.from_pretrained(model_id, quantization_config=bnb_config, device_map="auto")
     else:
+        n_gpus = torch.cuda.device_count() if torch.cuda.is_available() else 0
+        use_multi_gpu = model_vram > 12.0 and n_gpus > 1
+        effective_device_map = "auto" if use_multi_gpu else device
+        if use_multi_gpu:
+            log.info("Large model (%.0f GB bf16): device_map='auto' across %d GPUs",
+                     model_vram, n_gpus)
         try:
-            model = AutoModel.from_pretrained(model_id, dtype=dtype, device_map=device)
+            model = AutoModel.from_pretrained(model_id, dtype=dtype, device_map=effective_device_map)
         except (ValueError, TypeError):
             model = AutoModel.from_pretrained(model_id, dtype=dtype).to(device)
 
