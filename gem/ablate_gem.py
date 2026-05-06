@@ -586,7 +586,7 @@ def run_model(
         tokenizer.pad_token = tokenizer.eos_token
     n_gpus = torch.cuda.device_count() if torch.cuda.is_available() else 0
     model_vram = _registry_vram(model_id)
-    use_multi_gpu = model_vram > 20.0 and n_gpus > 1
+    use_multi_gpu = model_vram > 17.0 and n_gpus > 1
     effective_device_map = "auto" if use_multi_gpu else device
     if use_multi_gpu:
         log.info("Large model (%.0f GB bf16): device_map='auto' across %d GPUs",
