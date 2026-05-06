@@ -44,7 +44,8 @@ Results are written to results/<extraction_dir>/patch_<concept>.json
 Usage:
     python src/patch.py --model EleutherAI/pythia-410m
     python src/patch.py --model google/gemma-2-9b --load-in-8bit
-    python src/patch.py --all --clean-cache
+    python src/patch.py --all
+    python src/patch.py --all --no-clean-cache
 """
 
 from __future__ import annotations
@@ -422,7 +423,7 @@ def run_model(model_id: str, concepts: list[str], args) -> None:
         )
 
     release_model(model)
-    if args.clean_cache:
+    if not args.no_clean_cache:
         purge_hf_cache(model_id)
 
     log.info("Done: %s  (%.1fs)", model_id, time.time() - t_start)
@@ -448,8 +449,8 @@ def main():
     parser.add_argument("--device",      choices=["cuda", "cpu", "auto"], default="auto")
     parser.add_argument("--load-in-8bit", action="store_true",
                         help="Load model in 8-bit quantization (requires bitsandbytes)")
-    parser.add_argument("--clean-cache", action="store_true",
-                        help="Delete model from HF cache after patching")
+    parser.add_argument("--no-clean-cache", action="store_true",
+                        help="Keep model in HF cache after patching (default: purge)")
     parser.add_argument("--force",       action="store_true",
                         help="Re-run even if patch_<concept>.json already exists")
     args = parser.parse_args()
