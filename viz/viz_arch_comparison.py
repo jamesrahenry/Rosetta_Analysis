@@ -34,12 +34,12 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).parent))
 from viz_style import FAMILY_MAP, THEME, apply_theme
+from rosetta_tools.paths import ROSETTA_MODELS
 
 log = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
-CAZ_ROOT    = Path(__file__).resolve().parents[1]
-RESULTS_DIR = CAZ_ROOT / "results"
+PAPERS_DIR = Path.home() / "Source" / "Rosetta_Program" / "papers" / "caz-validation" / "figures"
 
 # Architecture groupings
 ARCH_GROUPS = {
@@ -143,8 +143,8 @@ def load_patching(results_dir: Path) -> dict[str, list[float]]:
 
 
 def run(args) -> None:
-    ablation = load_ablation(RESULTS_DIR)
-    patching  = load_patching(RESULTS_DIR)
+    ablation = load_ablation(ROSETTA_MODELS)
+    patching  = load_patching(ROSETTA_MODELS)
 
     groups = list(ARCH_GROUPS.keys())
 
@@ -235,7 +235,7 @@ def run(args) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Architecture causal comparison figure")
     parser.add_argument(
-        "--out", default=str(RESULTS_DIR / "arch_comparison" / "arch_causal_comparison.png"),
+        "--out", default=str(PAPERS_DIR / "fig_arch_comparison.png"),
     )
     run(parser.parse_args())
 

@@ -21,9 +21,9 @@ import numpy as np
 import sys
 sys.path.insert(0, str(Path(__file__).parent))
 from viz_style import THEME, concept_color, layer_ticks
+from rosetta_tools.paths import ROSETTA_RESULTS
 
-CAZ_ROOT    = Path(__file__).resolve().parents[1]
-RESULTS_DIR = CAZ_ROOT / "results"
+PAPERS_DIR = Path.home() / "Source" / "Rosetta_Program" / "papers" / "caz-validation" / "figures"
 
 CONCEPTS = [
     "credibility", "certainty", "sentiment", "moral_valence",
@@ -176,7 +176,8 @@ def run(args):
         fontsize=9.5,
     )
 
-    out = xval_dir / "caz_vs_sae_all_concepts.png"
+    out = PAPERS_DIR / "fig_sae_comparison.png"
+    PAPERS_DIR.mkdir(parents=True, exist_ok=True)
     fig.savefig(out, dpi=160, bbox_inches="tight", facecolor="white")
     print(f"Saved: {out}")
 
@@ -269,7 +270,7 @@ def run_overlay(args):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--xval-dir",
-                        default=str(RESULTS_DIR / "gemma_scope_xval"))
+                        default=str(ROSETTA_RESULTS / "gemma_scope_xval"))
     parser.add_argument("--overlay", action="store_true",
                         help="Single-panel overlay of all 7 concepts")
     args = parser.parse_args()

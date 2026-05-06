@@ -69,9 +69,10 @@ def _find_pairs_dir() -> Path:
             return p
     return candidates[0]
 
+from rosetta_tools.paths import ROSETTA_RESULTS
 FEATURE_LIB  = _find_feature_lib()
 PAIRS_DIR    = _find_pairs_dir()
-RESULTS_DIR  = CAZ_ROOT / "results"
+RESULTS_DIR  = ROSETTA_RESULTS
 
 MODEL_ID      = "google/gemma-2-2b"
 SAE_RELEASE   = "gemma-scope-2b-pt-res"
@@ -625,7 +626,7 @@ def main():
     )
     parser.add_argument(
         "--out", type=str,
-        default=str(CAZ_ROOT / "results" / "gemma_scope_xval"),
+        default=str(ROSETTA_RESULTS / "gemma_scope_xval"),
         help="Output directory"
     )
     args = parser.parse_args()
