@@ -1,4 +1,4 @@
-*Written: 2026-04-22 UTC*
+*Written: 2026-04-22 00:00 UTC*
 
 # Paper Map — Script to Figure Mapping
 
@@ -14,10 +14,10 @@ of `Rosetta_Concept_Pairs`.
 |---|---|---|
 | Fig 1 — CAZ profile (credibility) | `caz/deep_dive.py` | Single model deep dive |
 | Fig 2 — Multi-concept overlay | `viz/viz_caz_anatomy.py` | Uses caz_deep_dive outputs |
-| Fig 3 — Peak heatmap (all models × concepts) | `viz/viz_caz_heatmap.py` | |
+| Fig 3 — Peak heatmap (all models × concepts) | `viz/viz_peak_depth_paper.py` | |
 | Fig 4 — Gentle vs black-hole CAZ | `caz/analyze.py` | threshold scoring |
 | Table 1 — Per-model CAZ summary | `caz/analyze.py` | |
-| Supplementary — Ablation controls | `caz/ablation_controls.py` | |
+| Supplementary — Ablation controls | `caz/caz_ablation_control.py` | |
 
 ---
 

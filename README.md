@@ -1,6 +1,6 @@
 # rosetta_analysis
 
-*Written: 2026-04-22 UTC*
+*Written: 2026-04-22 00:00 UTC*
 
 Analysis scripts for the **Rosetta** interpretability research program.
 Companion to [`rosetta_tools`](https://github.com/jamesrahenry/rosetta_tools) (the shared library)

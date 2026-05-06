@@ -1,0 +1,17 @@
+# CIA trajectory scoring — approaches D/E/F (layer-matched, handoff, velocity)
+# Extends the A/B/C experiment with three new probe approaches motivated by GEM theory:
+#   D = layer-matched scoring: per-layer direction across CAZ span (more faithful than C's mean)
+#   E = handoff-layer scoring: direction at region.end+1 (GEM handoff, not peak)
+#   F = velocity-weighted: peak-velocity layer + velocity-weighted mean (active assembly signal)
+#
+# Research questions:
+#   Does E (handoff) beat A (single-peak at handoff)?  — validates GEM settled-product claim
+#   Does D (layer-matched max) beat B (multi-probe max)? — per-layer vs peak-only directions
+#   Does F (velocity peak) capture a signal orthogonal to separation peak?
+#
+# Output: ~/rosetta_data/cia_trajectory/  (same dir as A/B/C runs)
+# Written: 2026-04-26 UTC
+#
+# Run Qwen first (primary CIA model), then pythia-6.9b reference
+cd ~/rosetta_analysis && git pull && python gem/cia_trajectory_scoring.py --model Qwen/Qwen2.5-7B-Instruct --batch-size 4
+cd ~/rosetta_analysis && python gem/cia_trajectory_scoring.py --model EleutherAI/pythia-6.9b --batch-size 4
