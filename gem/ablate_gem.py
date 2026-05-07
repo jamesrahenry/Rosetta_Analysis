@@ -619,7 +619,8 @@ def run_model(
         model = AutoModelForCausalLM.from_pretrained(load_path, **load_kwargs)
     else:
         model = load_model_with_retry(AutoModelForCausalLM, model_id, dtype=dtype,
-                                      device=device, device_map=effective_device_map)
+                                      device=device, device_map=effective_device_map,
+                                      load_in_8bit=use_8bit)
     model.eval()
     log_vram("after model load")
 
