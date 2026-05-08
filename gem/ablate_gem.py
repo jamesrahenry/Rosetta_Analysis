@@ -608,7 +608,8 @@ def run_model(
 
     load_kwargs = dict(torch_dtype=dtype, device_map=effective_device_map)
     if use_8bit:
-        load_kwargs["load_in_8bit"] = True
+        from transformers import BitsAndBytesConfig as _BnBCfg
+        load_kwargs["quantization_config"] = _BnBCfg(load_in_8bit=True)
         load_kwargs.pop("torch_dtype", None)  # let bitsandbytes handle dtype
         if explicit_8bit:
             log.info("Loading in 8-bit quantization (explicit flag)")
