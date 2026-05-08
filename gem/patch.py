@@ -492,6 +492,15 @@ def main():
             log.warning("No concept data found for %s — skipping", model_id)
             continue
 
+        # Skip model load entirely when every concept already has a patch result
+        if not args.force:
+            already_done = [c for c in concepts
+                            if (extraction_dir / f"patch_{c}.json").exists()]
+            if len(already_done) == len(concepts):
+                log.info("=== Patch sweep: %s — all %d concepts done, skipping ===",
+                         model_id, len(concepts))
+                continue
+
         run_model(model_id, concepts, args)
 
 
