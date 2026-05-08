@@ -538,7 +538,16 @@ def run_model(
         log.error("No GEMs for %s. Run build_gems.py first.", model_id)
         return False
 
-    log.info("=== GEM ablation: %s (%d concepts) ===", model_id, len(available))
+    # Skip model load entirely if every concept's ablation result already exists
+    already_done = [c for c in available
+                    if (extraction_dir / f"ablation_gem_{c}.json").exists()]
+    if len(already_done) == len(available):
+        log.info("=== GEM ablation: %s — all %d concepts already done, skipping ===",
+                 model_id, len(available))
+        return True
+
+    log.info("=== GEM ablation: %s (%d concepts, %d remaining) ===",
+             model_id, len(available), len(available) - len(already_done))
 
     device = get_device(args.device)
     dtype = get_dtype(device)
