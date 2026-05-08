@@ -66,6 +66,7 @@ from rosetta_tools.ablation import get_transformer_layers
 from rosetta_tools.caz import find_caz_boundary, LayerMetrics
 from rosetta_tools.gpu_utils import (
     get_device, get_dtype, log_device_info, log_vram, release_model, purge_hf_cache,
+    load_model_with_retry,
 )
 from rosetta_tools.dataset import load_concept_pairs, texts_by_label
 from rosetta_tools.gem import find_extraction_dir, discover_all_models
@@ -360,17 +361,17 @@ def run_model(model_id: str, concepts: list[str], args) -> None:
     if use_8bit:
         try:
             import accelerate  # noqa: F401
-            from transformers import BitsAndBytesConfig
         except ImportError as e:
             raise SystemExit(
                 f"8-bit loading requires accelerate and bitsandbytes: {e}\n"
                 "  pip install accelerate bitsandbytes"
             ) from e
-        bnb_config = BitsAndBytesConfig(load_in_8bit=True)
         if auto_8bit:
             log.info("Large model (%.0f GB bf16 > %.0f GB single GPU): auto 8-bit",
                      model_vram, single_gpu_vram)
-        model = AutoModel.from_pretrained(model_id, quantization_config=bnb_config, device_map="auto")
+        model = load_model_with_retry(AutoModel, model_id, dtype=dtype,
+                                      device=device, device_map="auto",
+                                      load_in_8bit=True)
     else:
         n_gpus = torch.cuda.device_count() if torch.cuda.is_available() else 0
         use_multi_gpu = model_vram > 12.0 and n_gpus > 1
@@ -378,10 +379,8 @@ def run_model(model_id: str, concepts: list[str], args) -> None:
         if use_multi_gpu:
             log.info("Large model (%.0f GB bf16): device_map='auto' across %d GPUs",
                      model_vram, n_gpus)
-        try:
-            model = AutoModel.from_pretrained(model_id, dtype=dtype, device_map=effective_device_map)
-        except (ValueError, TypeError):
-            model = AutoModel.from_pretrained(model_id, dtype=dtype).to(device)
+        model = load_model_with_retry(AutoModel, model_id, dtype=dtype,
+                                      device=device, device_map=effective_device_map)
 
     model.eval()
     log_vram("after model load")
