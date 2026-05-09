@@ -77,7 +77,7 @@ def score_cat(region) -> str:
 
 
 def model_slug(model_id: str) -> str:
-    return model_id.replace("/", "_").replace("-", "_").replace(".", "_")
+    return model_id.replace("/", "_").replace("-", "_")
 
 
 def load_caz(model_id: str, concept: str) -> dict:

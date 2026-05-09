@@ -53,7 +53,7 @@ HANDOFF_PAIRS = [
 
 
 def find_model_dir(model_id: str) -> Path:
-    slug = model_id.replace("/", "_").replace("-", "_").replace(".", "_")
+    slug = model_id.replace("/", "_").replace("-", "_")
     return ROSETTA_MODELS / slug
 
 

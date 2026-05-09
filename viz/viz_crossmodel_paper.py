@@ -53,7 +53,7 @@ N_COLS    = 4
 
 
 def find_model_dir(model_id: str) -> Path | None:
-    slug = model_id.replace("/", "_").replace("-", "_").replace(".", "_")
+    slug = model_id.replace("/", "_").replace("-", "_")
     d = ROSETTA_MODELS / slug
     return d if d.exists() else None
 

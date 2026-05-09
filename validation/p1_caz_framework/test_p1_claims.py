@@ -123,43 +123,26 @@ class TestScoredDetection:
         assert total == 7, \
             f"Expected 7 CAZes at 10% threshold, got {total}"
 
-    def test_scored_threshold_yields_more_cazes_than_legacy(self, gpt2xl_caz):
-        """Scored (0.5%) detection finds strictly more CAZes than legacy (10%).
-
-        Paper §6.2 claims '7 to 26'.  The exact count depends on the S(l) curve
-        from each extraction run; the qualitative claim — scored finds more — is
-        the load-bearing assertion.  Current extraction gives 10 at 0.5% vs 7 at 10%.
-        If this assertion fails, scored detection has become less sensitive than legacy.
-        """
-        n_legacy = sum(
-            len(find_caz_regions(m, min_prominence_frac=0.10).regions)
-            for _, m in gpt2xl_caz.values()
-        )
+    def test_scored_threshold_yields_26_cazes(self, gpt2xl_caz):
+        """Paper §6.2: 'increases the number of detected CAZes from 7 to 26.'"""
         n_scored = sum(
             len(find_caz_regions_scored(m).regions)
             for _, m in gpt2xl_caz.values()
         )
-        assert n_scored > n_legacy, \
-            f"Scored ({n_scored}) should find more CAZes than legacy ({n_legacy})"
-        # Regression: pin to current extraction result.  Paper claimed 26; update if
-        # extraction or algorithm changes intentionally shift this.
-        assert n_scored == 10, \
-            f"Scored CAZ count regressed: expected 10 (current data), got {n_scored}"
+        assert n_scored == 26, \
+            f"Expected 26 CAZes at 0.5% threshold, got {n_scored}. " \
+            "Data or algorithm has drifted from paper's extraction run."
 
-    def test_credibility_caz_count(self, gpt2xl_caz):
-        """Regression: credibility scored-detection count for GPT-2-XL.
-
-        Paper §6.1 claims 4 CAZes (L9, L29, L36, L45).  Current n=200 extraction
-        gives 2 (L9, L29) — the post-peak gentle CAZes at L36 and L45 are not
-        prominent enough in this extraction run.  This test pins the current value;
-        if extraction is re-run with identical parameters and produces 4 CAZes,
-        update the assertion and the paper claim is confirmed.
-        """
+    def test_credibility_has_four_cazes(self, gpt2xl_caz):
+        """Paper §6.1: 'The scored detector identifies 4 CAZes for this
+        [credibility] concept using default detection settings
+        (0.5% prominence floor, 3% valley-merge threshold).'"""
         _, metrics = gpt2xl_caz["credibility"]
         profile = find_caz_regions_scored(metrics)
         n_regions = len(profile.regions)
-        assert n_regions == 2, \
-            f"Credibility scored-CAZ count regressed: expected 2, got {n_regions}"
+        assert n_regions == 4, \
+            f"Credibility: expected 4 scored CAZes, got {n_regions}. " \
+            "Paper claims L9, L29, L36, L45. Re-extract GPT-2-XL or investigate S(l) drift."
 
     def test_scored_strictly_more_than_legacy(self, gpt2xl_caz):
         """Scored detection must find ≥ legacy detection for every concept."""
