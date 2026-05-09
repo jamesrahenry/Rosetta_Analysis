@@ -61,7 +61,7 @@ def load_data():
     abl_file = MODEL_DIR / "ablation_gem_credibility.json"
     if abl_file.exists():
         abl = json.loads(abl_file.read_text())
-        per_layer = abl.get("peak", {}).get("per_layer", {})
+        per_layer = abl.get("handoff", abl.get("peak", {})).get("per_layer", {})
         abl_by_layer = {int(L): v["sep_reduction"] for L, v in per_layer.items()}
 
     # Build LayerMetrics list and detect regions via rosetta_tools
