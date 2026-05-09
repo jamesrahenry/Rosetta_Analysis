@@ -38,9 +38,10 @@ from viz_style import FAMILY_MAP, THEME
 log = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
+from rosetta_tools.paths import ROSETTA_MODELS, ROSETTA_RESULTS
 CAZ_ROOT = Path(__file__).resolve().parents[1]
 RESULTS  = CAZ_ROOT / "results"
-OUT_DIR  = RESULTS / "random_control"
+OUT_DIR  = ROSETTA_RESULTS / "random_control"
 
 COHORT_MAP = {
     "Pythia": "MHA", "GPT-2": "MHA", "OPT": "MHA", "Phi": "MHA",
@@ -60,7 +61,7 @@ def family_of(model_id: str) -> tuple[str, int]:
 
 def load_records() -> list[dict]:
     records = []
-    files = list(RESULTS.rglob("ablation_random_*.json"))
+    files = list(ROSETTA_MODELS.rglob("ablation_random_*.json"))
     log.info("Found %d random-ablation files", len(files))
     for f in sorted(files):
         try:
