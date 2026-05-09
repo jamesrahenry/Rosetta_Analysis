@@ -98,6 +98,38 @@ PRH_PROXY_MODELS = (
 FRONTIER_MODELS = PRH_FRONTIER_MODELS
 CROSS_ARCH_MODELS = PRH_PROXY_MODELS  # legacy alias
 
+# Paper 1 (CAZ Framework) canonical model set — 19 L4-runnable models across
+# 8 architectural families.  gpt2-large and gpt2-xl are not in the PRH registry
+# clusters but are included here as the GPT-2 scale ladder.
+P1_MODELS: list[str] = [
+    # Pythia scale ladder (EleutherAI)
+    "EleutherAI/pythia-70m",
+    "EleutherAI/pythia-160m",
+    "EleutherAI/pythia-410m",
+    "EleutherAI/pythia-1b",
+    "EleutherAI/pythia-2.8b",
+    "EleutherAI/pythia-6.9b",
+    "EleutherAI/pythia-12b",
+    # GPT-2 family (OpenAI)
+    "openai-community/gpt2",
+    "openai-community/gpt2-large",
+    "openai-community/gpt2-xl",
+    # OPT (Meta)
+    "facebook/opt-6.7b",
+    # Qwen2.5 (Alibaba)
+    "Qwen/Qwen2.5-0.5B",
+    "Qwen/Qwen2.5-1.5B",
+    "Qwen/Qwen2.5-3B",
+    "Qwen/Qwen2.5-7B",
+    # Llama (Meta)
+    "meta-llama/Llama-3.1-8B",
+    "meta-llama/Llama-3.1-8B-Instruct",
+    # Mistral
+    "mistralai/Mistral-7B-v0.3",
+    # Gemma (Google)
+    "google/gemma-2-9b",
+]
+
 DEFAULT_CONCEPTS = CAZ_PRH_CONCEPTS  # 17 concepts from canonical dataset
 
 # Canonical results root — all extractions land here, no timestamps
@@ -497,6 +529,8 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Cross-architecture CAZ extraction")
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--model", type=str)
+    group.add_argument("--p1-corpus", action="store_true",
+                       help="Paper 1 CAZ corpus: 19 L4-runnable models across 8 architectural families")
     group.add_argument("--all", action="store_true", help="Run legacy cross-arch model set")
     group.add_argument("--frontier", action="store_true",
                        help="Run frontier-scale models only (8192-dim, H200)")
@@ -540,7 +574,9 @@ def main():
         log.error("Unknown concepts: %s", unknown)
         sys.exit(1)
 
-    if args.prh_proxy:
+    if args.p1_corpus:
+        models = P1_MODELS
+    elif args.prh_proxy:
         models = PRH_PROXY_MODELS
     elif args.prh_frontier:
         models = PRH_FRONTIER_MODELS

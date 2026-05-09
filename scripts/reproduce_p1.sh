@@ -137,7 +137,7 @@ step "2 / CAZ extraction — full corpus (~5h)"
 info "Skips models already extracted."
 
 $PY extraction/extract.py \
-    --all \
+    --p1-corpus \
     --n-pairs "${N_PAIRS}" \
     --concepts ${P1_CONCEPTS}
 
