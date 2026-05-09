@@ -58,10 +58,11 @@ def load_data():
 
     # ablation suppression by layer index (graceful — file may not exist)
     abl_by_layer: dict[int, float] = {}
-    abl_file = MODEL_DIR / "ablation_credibility.json"
+    abl_file = MODEL_DIR / "ablation_gem_credibility.json"
     if abl_file.exists():
         abl = json.loads(abl_file.read_text())
-        abl_by_layer = {a["layer"]: a["separation_reduction"] for a in abl["layers"]}
+        per_layer = abl.get("peak", {}).get("per_layer", {})
+        abl_by_layer = {int(L): v["sep_reduction"] for L, v in per_layer.items()}
 
     # Build LayerMetrics list and detect regions via rosetta_tools
     layer_metrics = [
