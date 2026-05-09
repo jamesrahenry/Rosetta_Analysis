@@ -25,6 +25,9 @@ explicit = true
 [tool.uv.sources]
 torch = { index = "pytorch-cu128" }
 
+[tool.setuptools]
+packages = []
+
 [build-system]
 requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
