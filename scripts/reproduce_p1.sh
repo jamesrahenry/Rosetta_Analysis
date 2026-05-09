@@ -60,31 +60,16 @@ cd "${REPO_ROOT}"
 python - <<'PYCHECK'
 import sys, importlib
 
-# Check pure-Python packages first (no CUDA load)
-missing = []
-for pkg in ["transformers", "scipy", "numpy", "sklearn", "pytest"]:
-    if importlib.util.find_spec(pkg) is None:
-        missing.append(pkg)
+missing = [pkg for pkg in ["torch", "transformers", "scipy", "numpy", "sklearn"]
+           if importlib.util.find_spec(pkg) is None]
 if importlib.util.find_spec("rosetta_tools") is None:
-    missing.append("rosetta_tools (pip install rosetta-tools)")
+    missing.append("rosetta_tools")
 if missing:
     print(f"[ERROR] Missing packages: {', '.join(missing)}", file=sys.stderr)
-    print("  Run: pip install -r requirements.txt", file=sys.stderr)
+    print(f"  Make sure you are running under the rosetta_analysis Python environment.", file=sys.stderr)
     sys.exit(1)
 
-# Import torch separately — it can fail with a CUDA library error even when
-# pip-installed, if the CUDA runtime libraries are missing from LD_LIBRARY_PATH.
-try:
-    import torch
-except ImportError as e:
-    err = str(e)
-    print(f"[ERROR] torch import failed: {err}", file=sys.stderr)
-    if "libcusparseLt" in err or "libcuda" in err or "libcudart" in err:
-        print("  CUDA runtime library missing. Try one of:", file=sys.stderr)
-        print("    pip install nvidia-cusparselt-cu12      # installs the missing .so", file=sys.stderr)
-        print("    export LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH", file=sys.stderr)
-    sys.exit(1)
-
+import torch
 if not torch.cuda.is_available():
     print("[ERROR] No CUDA GPU detected. CAZ extraction requires a GPU.", file=sys.stderr)
     sys.exit(1)
