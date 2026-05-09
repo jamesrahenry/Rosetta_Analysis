@@ -1,0 +1,30 @@
+[project]
+name = "rosetta-analysis"
+version = "0.1.0"
+description = "Analysis scripts for the Rosetta interpretability research program"
+requires-python = ">=3.11"
+dependencies = [
+    "rosetta-tools @ git+https://github.com/jamesrahenry/Rosetta_Tools.git@v1.1.0",
+    "torch>=2.2.0",
+    "transformers>=4.40.0",
+    "numpy>=1.24.0",
+    "scipy>=1.11.0",
+    "scikit-learn>=1.4.0",
+    "matplotlib>=3.8.0",
+    "pandas>=2.0.0",
+    "accelerate>=0.27.0",
+    "bitsandbytes>=0.43.0",
+    "pytest>=8.0.0",
+]
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu128" }
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"

@@ -12,8 +12,8 @@
 # Requirements:
 #   - NVIDIA GPU (≥16GB VRAM; full corpus needs 24GB for the larger models)
 #   - HF_TOKEN env var (or huggingface-cli login) for gated models
-#   - rosetta-tools installed: pip install rosetta-tools
-#   - Rosetta_Concept_Pairs available (see below)
+#   - uv (https://docs.astral.sh/uv/) — used to manage the Python environment
+#   - Rosetta_Concept_Pairs available (see concept pairs section in README)
 
 set -euo pipefail
 
@@ -44,20 +44,31 @@ done
 # ---------------------------------------------------------------------------
 step() { echo; echo "══════════════════════════════════════════"; echo "  $*"; echo "══════════════════════════════════════════"; }
 info() { echo "  [INFO] $*"; }
-fail() { echo "  [ERROR] $*" >&2; exit 1; }
 elapsed() { echo "  [TIME] Elapsed: $(( ($(date +%s) - START_TS) / 60 ))m"; }
 
 START_TS=$(date +%s)
 P1_CONCEPTS="credibility certainty causation temporal_order negation sentiment moral_valence"
+
+cd "${REPO_ROOT}"
+
+# ---------------------------------------------------------------------------
+# Resolve Python — prefer uv, fall back to whatever is in PATH
+# ---------------------------------------------------------------------------
+if command -v uv &>/dev/null; then
+    info "uv found — syncing environment"
+    uv sync --quiet
+    PY="uv run python"
+else
+    info "uv not found — using python from PATH"
+    PY="python"
+fi
 
 # ---------------------------------------------------------------------------
 # Step 0 — Environment checks
 # ---------------------------------------------------------------------------
 step "0 / Checking environment"
 
-cd "${REPO_ROOT}"
-
-python - <<'PYCHECK'
+$PY - <<'PYCHECK'
 import sys, importlib
 
 missing = [pkg for pkg in ["torch", "transformers", "scipy", "numpy", "sklearn"]
@@ -66,7 +77,7 @@ if importlib.util.find_spec("rosetta_tools") is None:
     missing.append("rosetta_tools")
 if missing:
     print(f"[ERROR] Missing packages: {', '.join(missing)}", file=sys.stderr)
-    print(f"  Make sure you are running under the rosetta_analysis Python environment.", file=sys.stderr)
+    print("  Install uv (https://docs.astral.sh/uv/) and re-run — it handles everything.", file=sys.stderr)
     sys.exit(1)
 
 import torch
@@ -80,17 +91,15 @@ if vram_gb < 15:
     print(f"  [WARNING] Only {vram_gb:.0f}GB VRAM — some models may OOM. --quick recommended.")
 PYCHECK
 
-# Verify concept pairs are reachable
-python - <<'PYCHECK'
+$PY - <<'PYCHECK'
 import sys
 try:
     from rosetta_tools.dataset import load_concept_pairs
     pairs = load_concept_pairs("credibility", n=1)
-    print(f"  Concept pairs: found ({len(pairs)} loaded for smoke test)")
+    print(f"  Concept pairs: OK")
 except FileNotFoundError as e:
     print(f"[ERROR] {e}", file=sys.stderr)
-    print("  Set ROSETTA_CONCEPTS_ROOT to the directory containing *_consensus_pairs.jsonl files,", file=sys.stderr)
-    print("  or clone Rosetta_Concept_Pairs alongside this repo:", file=sys.stderr)
+    print("  Set ROSETTA_CONCEPTS_ROOT to the *_consensus_pairs.jsonl directory, or:", file=sys.stderr)
     print("    git clone https://github.com/jamesrahenry/Rosetta_Concept_Pairs ../Rosetta_Concept_Pairs", file=sys.stderr)
     sys.exit(1)
 PYCHECK
@@ -103,7 +112,7 @@ elapsed
 # ---------------------------------------------------------------------------
 step "1 / CAZ extraction — GPT-2-XL (N=${N_PAIRS} pairs)"
 
-python extraction/extract.py \
+$PY extraction/extract.py \
     --model openai-community/gpt2-xl \
     --n-pairs "${N_PAIRS}" \
     --concepts ${P1_CONCEPTS}
@@ -111,11 +120,8 @@ python extraction/extract.py \
 elapsed
 
 if [ "${QUICK}" = true ]; then
-    # ---------------------------------------------------------------------------
-    # Quick mode: verify GPT-2-XL claims only (P5 and cross-arch tests skip)
-    # ---------------------------------------------------------------------------
     step "Validation (quick — GPT-2-XL claims only)"
-    python -m pytest validation/p1_caz_framework/ -m "not slow" -v \
+    $PY -m pytest validation/p1_caz_framework/ -m "not slow" -v \
         --tb=short \
         -k "GPT2XL or ScoredDetection"
     echo
@@ -125,12 +131,12 @@ if [ "${QUICK}" = true ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Step 2 — CAZ extraction: full paper corpus (all same-dim model families)
+# Step 2 — CAZ extraction: full paper corpus
 # ---------------------------------------------------------------------------
 step "2 / CAZ extraction — full corpus (~5h)"
-info "Extracting all L4-runnable models. Skips models already extracted."
+info "Skips models already extracted."
 
-python extraction/extract.py \
+$PY extraction/extract.py \
     --all \
     --n-pairs "${N_PAIRS}" \
     --concepts ${P1_CONCEPTS}
@@ -138,21 +144,17 @@ python extraction/extract.py \
 elapsed
 
 # ---------------------------------------------------------------------------
-# Step 3 — P5: depth-matched alignment (needs ≥2 same-dim models extracted)
+# Step 3 — P5: depth-matched alignment
 # ---------------------------------------------------------------------------
 step "3 / P5 — depth-matched alignment analysis"
-
-python alignment/p5/p5_propdepth.py
-
+$PY alignment/p5/p5_propdepth.py
 elapsed
 
 # ---------------------------------------------------------------------------
 # Step 4 — P5: validation battery (null tests)
 # ---------------------------------------------------------------------------
-step "4 / P5 — validation battery (null tests)"
-
-python alignment/p5/p5_validation_battery.py
-
+step "4 / P5 — validation battery"
+$PY alignment/p5/p5_validation_battery.py
 elapsed
 
 # ---------------------------------------------------------------------------
@@ -160,8 +162,7 @@ elapsed
 # ---------------------------------------------------------------------------
 step "5 / Validation suite — all Paper 1 claims"
 
-python -m pytest validation/p1_caz_framework/ -v --tb=short
-
+$PY -m pytest validation/p1_caz_framework/ -v --tb=short
 RESULT=$?
 elapsed
 
