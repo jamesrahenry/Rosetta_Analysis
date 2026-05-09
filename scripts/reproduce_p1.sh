@@ -59,16 +59,32 @@ cd "${REPO_ROOT}"
 
 python - <<'PYCHECK'
 import sys, importlib
-missing = [pkg for pkg in ["torch", "transformers", "scipy", "numpy", "sklearn"] if importlib.util.find_spec(pkg) is None]
-try:
-    import rosetta_tools  # noqa: F401
-except ImportError:
+
+# Check pure-Python packages first (no CUDA load)
+missing = []
+for pkg in ["transformers", "scipy", "numpy", "sklearn", "pytest"]:
+    if importlib.util.find_spec(pkg) is None:
+        missing.append(pkg)
+if importlib.util.find_spec("rosetta_tools") is None:
     missing.append("rosetta_tools (pip install rosetta-tools)")
 if missing:
     print(f"[ERROR] Missing packages: {', '.join(missing)}", file=sys.stderr)
+    print("  Run: pip install -r requirements.txt", file=sys.stderr)
     sys.exit(1)
 
-import torch
+# Import torch separately — it can fail with a CUDA library error even when
+# pip-installed, if the CUDA runtime libraries are missing from LD_LIBRARY_PATH.
+try:
+    import torch
+except ImportError as e:
+    err = str(e)
+    print(f"[ERROR] torch import failed: {err}", file=sys.stderr)
+    if "libcusparseLt" in err or "libcuda" in err or "libcudart" in err:
+        print("  CUDA runtime library missing. Try one of:", file=sys.stderr)
+        print("    pip install nvidia-cusparselt-cu12      # installs the missing .so", file=sys.stderr)
+        print("    export LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH", file=sys.stderr)
+    sys.exit(1)
+
 if not torch.cuda.is_available():
     print("[ERROR] No CUDA GPU detected. CAZ extraction requires a GPU.", file=sys.stderr)
     sys.exit(1)
@@ -76,7 +92,7 @@ if not torch.cuda.is_available():
 vram_gb = torch.cuda.get_device_properties(0).total_memory / 1e9
 print(f"  GPU: {torch.cuda.get_device_name(0)} ({vram_gb:.0f}GB VRAM)")
 if vram_gb < 15:
-    print(f"[WARNING] Only {vram_gb:.0f}GB VRAM — some models may OOM. Use --quick for GPT-2-XL only.")
+    print(f"  [WARNING] Only {vram_gb:.0f}GB VRAM — some models may OOM. --quick recommended.")
 PYCHECK
 
 # Verify concept pairs are reachable
