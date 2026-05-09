@@ -58,11 +58,11 @@ CONCEPTS: list[str] = [
 ]
 
 
-def load_all_texts() -> list[str]:
+def load_all_texts(n_pairs: int = 200) -> list[str]:
     """Load all contrastive pair texts, labels stripped."""
     all_texts = []
     for concept in CONCEPTS:
-        pairs = load_concept_pairs(concept)
+        pairs = load_concept_pairs(concept, n=n_pairs)
         all_texts.extend([p.pos_text for p in pairs])
         all_texts.extend([p.neg_text for p in pairs])
         log.info("  %s: %d texts", concept, len(pairs) * 2)
@@ -116,7 +116,7 @@ def run_deep_dive(model_id: str, args) -> None:
 
     # Load texts
     log.info("Loading texts...")
-    texts = load_all_texts()
+    texts = load_all_texts(n_pairs=getattr(args, "n_pairs", 200))
 
     # Load known concept directions
     all_concept_dirs = load_concept_directions_at_layers(model_id)
@@ -341,6 +341,8 @@ def main():
                        help="Run all models with this tag (e.g. 'instruct')")
     group.add_argument("--everything", action="store_true",
                        help="Run all enabled base models + all tagged models")
+    parser.add_argument("--n-pairs", type=int, default=200,
+                        help="Pairs per concept to load (default: 200)")
     parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--device", choices=["cuda", "cpu", "auto"], default="auto")
     parser.add_argument("--cos-threshold", type=float, default=0.5,
