@@ -32,7 +32,7 @@ from pathlib import Path
 
 import numpy as np
 import torch
-from rosetta_tools.gpu_utils import load_causal_lm
+from rosetta_tools.gpu_utils import load_causal_lm, NumpyJSONEncoder
 
 logging.basicConfig(
     level=logging.INFO,
@@ -524,7 +524,7 @@ def run(args):
                            "Higher = SAE features better separate concept+/concept- at this layer.",
             "by_concept": layer_agreement,
             "summary": agreement_summary,
-        }, indent=2)
+        }, indent=2, cls=NumpyJSONEncoder)
     )
 
     # Flatten direction_results for serialization
@@ -536,7 +536,7 @@ def run(args):
             "description": "At CAZ peak layers: cosine similarity between top differential "
                            "SAE decoder directions and our eigenvectors.",
             "by_concept": dir_out,
-        }, indent=2)
+        }, indent=2, cls=NumpyJSONEncoder)
     )
 
     (out_dir / "shared_caz_peaks.json").write_text(
@@ -545,7 +545,7 @@ def run(args):
                            "in top-K for multiple concepts (polysemanticity signal).",
             "shared_caz_peaks_layers": {str(L): v for L, v in shared_caz_peaks_summary.items()},
             "all_shared_caz_peaks": {str(L): cs for L, cs in shared_caz_peaks.items()},
-        }, indent=2)
+        }, indent=2, cls=NumpyJSONEncoder)
     )
 
     # High-level summary
@@ -571,7 +571,7 @@ def run(args):
             for L, v in shared_caz_peaks_summary.items()
         },
     }
-    (out_dir / "summary.json").write_text(json.dumps(summary, indent=2))
+    (out_dir / "summary.json").write_text(json.dumps(summary, indent=2, cls=NumpyJSONEncoder))
 
     # Print readable summary
     log.info("")
