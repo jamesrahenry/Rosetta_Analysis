@@ -251,6 +251,12 @@ def run_model(model_id: str, concepts: list[str], args) -> None:
 
     n_gpus = torch.cuda.device_count() if torch.cuda.is_available() else 0
     model_vram = _registry_vram(model_id)
+    vram_free = (torch.cuda.get_device_properties(0).total_memory / 1e9) if n_gpus > 0 else 0
+    vram_cap = vram_free * n_gpus
+    if model_vram > vram_cap * 0.9:
+        log.warning("Skipping %s: model VRAM %.0f GB > %.0f GB available (%.0f GB × %d GPUs)",
+                    model_id, model_vram, vram_cap * 0.9, vram_free, max(n_gpus, 1))
+        return
     device_map = "auto" if (model_vram > 20.0 and n_gpus > 1) else None
     if device_map:
         log.info("Large model (%.0f GB bf16): device_map='auto' across %d GPUs",
