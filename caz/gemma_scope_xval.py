@@ -304,6 +304,35 @@ def compute_differential_acts(
     return pos_acts.mean(axis=0) - neg_acts.mean(axis=0)
 
 
+def caz_separation_scores(pos_resid: np.ndarray, neg_resid: np.ndarray) -> np.ndarray:
+    """
+    Per-layer CAZ separation score (cumulative, unnormalized).
+
+    At each layer: compute paired delta vectors (pos - neg), find the top concept
+    eigenvector via SVD, score = mean |projection of delta onto eigvec|.
+
+    This is the metric used in the paper's Spearman r claim (not Fisher-normalized).
+    Both this and the SAE discrimination score grow monotonically as the residual
+    stream accumulates concept signal, making high r the expected result.
+
+    pos_resid / neg_resid: (n_pairs, n_layers, hidden_dim) float32
+    Returns: (n_layers,) float32
+    """
+    n_pairs, n_layers, _ = pos_resid.shape
+    scores = np.zeros(n_layers, dtype=np.float32)
+    for layer in range(n_layers):
+        pos_l = pos_resid[:, layer, :].astype(np.float32)
+        neg_l = neg_resid[:, layer, :].astype(np.float32)
+        delta = pos_l - neg_l
+        delta -= delta.mean(axis=0, keepdims=True)
+        if delta.shape[0] < 2:
+            continue
+        _, _, Vt = np.linalg.svd(delta, full_matrices=False)
+        top_eigvec = Vt[0] / (np.linalg.norm(Vt[0]) + 1e-8)
+        scores[layer] = float(np.mean(np.abs(delta @ top_eigvec)))
+    return scores
+
+
 def layer_agreement_score(
     differential: np.ndarray,
     top_k: int,
@@ -393,6 +422,7 @@ def run(args):
 
     # ── 3. Per-concept analysis ───────────────────────────────────────────────
     layer_agreement    : dict[str, list[float]]      = {}
+    caz_scores_by_concept: dict[str, list[float]]    = {}
     direction_results  : dict[str, dict[int, list]]  = {}
     shared_caz_peaks_poly: dict[int, dict]             = defaultdict(dict)
 
@@ -412,6 +442,12 @@ def run(args):
         neg_resid = get_residual_streams(
             model, tokenizer, neg_texts, device, args.batch_size)
         # shapes: (n_texts, n_layers, hidden_dim)
+
+        # Compute CAZ separation scores while residuals are in memory
+        pos_np = pos_resid.cpu().numpy() if hasattr(pos_resid, "cpu") else pos_resid
+        neg_np = neg_resid.cpu().numpy() if hasattr(neg_resid, "cpu") else neg_resid
+        caz_sep = caz_separation_scores(pos_np, neg_np)
+        caz_scores_by_concept[concept] = caz_sep.tolist()
 
         caz_peak_layers = {r["peak_layer"] for r in all_caz_peaks.get(concept, [])}
 
@@ -572,6 +608,41 @@ def run(args):
         },
     }
     (out_dir / "summary.json").write_text(json.dumps(summary, indent=2, cls=NumpyJSONEncoder))
+
+    # ── 7. caz_vs_sae_curves.json — both metrics per concept for viz ──────────
+    # CAZ score = cumulative eigvec separation (same measurement basis as SAE);
+    # SAE score = mean top-K |differential|. Both grow monotonically → high r expected.
+    from scipy.stats import spearmanr as _spearmanr
+    curves_out = {}
+    for concept in concepts:
+        if concept not in caz_scores_by_concept or concept not in layer_agreement:
+            continue
+        caz_s = np.array(caz_scores_by_concept[concept], dtype=np.float32)
+        sae_s = np.array(layer_agreement[concept], dtype=np.float32)
+        n = min(len(caz_s), len(sae_s))
+        r = float(_spearmanr(caz_s[:n], sae_s[:n]).statistic)
+        curves_out[concept] = {
+            "caz_scores": caz_s[:n].tolist(),
+            "sae_scores": sae_s[:n].tolist(),
+            "spearman_r": round(r, 4),
+        }
+        log.info("  %s: Spearman r=%.3f", concept, r)
+    mean_r = float(np.mean([v["spearman_r"] for v in curves_out.values()])) if curves_out else 0.0
+    log.info("Mean Spearman r across %d concepts: %.3f", len(curves_out), mean_r)
+    (out_dir / "caz_vs_sae_curves.json").write_text(
+        json.dumps({
+            "description": (
+                "Per-layer CAZ eigenvector separation (mean paired delta projected onto "
+                "top eigvec) vs SAE discrimination score. Both are cumulative unnormalized "
+                "metrics — high r is the expected result given shared measurement basis."
+            ),
+            "model": MODEL_ID,
+            "n_layers": n_layers,
+            "pairs_per_concept": args.pairs_per_concept,
+            "mean_spearman_r": mean_r,
+            "results": curves_out,
+        }, indent=2, cls=NumpyJSONEncoder)
+    )
 
     # Print readable summary
     log.info("")

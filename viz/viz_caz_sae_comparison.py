@@ -21,7 +21,7 @@ import numpy as np
 import sys
 sys.path.insert(0, str(Path(__file__).parent))
 from viz_style import THEME, concept_color, layer_ticks
-from rosetta_tools.paths import ROSETTA_RESULTS
+from rosetta_tools.paths import ROSETTA_RESULTS, ROSETTA_MODELS
 
 PAPERS_DIR = Path.home() / "Source" / "Rosetta_Program" / "papers" / "caz-validation" / "figures"
 
@@ -49,6 +49,44 @@ def spearman_r(a, b):
     return float(spearmanr(a, b).statistic)
 
 
+def _load_caz_scores_proxy(concept: str) -> list[float]:
+    """Fallback: load raw_distance from extraction files as CAZ score proxy."""
+    p = ROSETTA_MODELS / "google_gemma_2_2b" / f"caz_{concept}.json"
+    d = json.loads(p.read_text())
+    metrics = d["layer_data"]["metrics"]
+    return [m["raw_distance"] for m in sorted(metrics, key=lambda m: m["layer"])]
+
+
+def load_curves(xval_dir: Path) -> dict:
+    """Load per-concept {caz_scores, sae_scores, spearman_r} curves.
+
+    Prefers caz_vs_sae_curves.json (authoritative — both metrics from same
+    model run with same pairs). Falls back to raw_distance proxy from
+    extraction files when that file is absent.
+    """
+    authoritative = xval_dir / "caz_vs_sae_curves.json"
+    if authoritative.exists():
+        return json.loads(authoritative.read_text())["results"]
+
+    # Proxy path: SAE scores from layer_agreement.json, CAZ from extraction raw_distance
+    la = json.loads((xval_dir / "layer_agreement.json").read_text())
+    sae_by_concept = la["by_concept"]
+    curves = {}
+    for concept in CONCEPTS:
+        if concept not in sae_by_concept:
+            continue
+        sae = sae_by_concept[concept]
+        caz = _load_caz_scores_proxy(concept)
+        n = min(len(sae), len(caz))
+        sae, caz = sae[:n], caz[:n]
+        curves[concept] = {
+            "caz_scores": caz,
+            "sae_scores": sae,
+            "spearman_r": spearman_r(caz, sae),
+        }
+    return curves
+
+
 def run(args):
     import matplotlib
     matplotlib.use("Agg")
@@ -56,7 +94,7 @@ def run(args):
     import matplotlib.gridspec as gridspec
 
     xval_dir = Path(args.xval_dir)
-    curves   = json.loads((xval_dir / "caz_vs_sae_curves.json").read_text())["results"]
+    curves   = load_curves(xval_dir)
 
     # ── Figure layout: 2×4 — 7 concepts + summary ─────────────────────────────
     # Row 0: credibility · certainty · sentiment · moral_valence
@@ -189,7 +227,7 @@ def run_overlay(args):
     import matplotlib.pyplot as plt
 
     xval_dir = Path(args.xval_dir)
-    curves   = json.loads((xval_dir / "caz_vs_sae_curves.json").read_text())["results"]
+    curves   = load_curves(xval_dir)
 
     fig, ax = plt.subplots(figsize=(11, 6))
     fig.patch.set_facecolor("white")
