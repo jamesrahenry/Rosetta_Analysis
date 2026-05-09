@@ -70,8 +70,10 @@ SAE_WIDTH     = "16k"
 SAE_TARGET_L0 = 75
 
 CONCEPTS = [
-    "credibility", "certainty", "sentiment", "moral_valence",
-    "causation", "temporal_order", "negation",
+    "agency", "authorization", "causation", "certainty", "credibility",
+    "deception", "exfiltration", "formality", "moral_valence", "negation",
+    "plurality", "sarcasm", "sentiment", "specificity", "temporal_order",
+    "threat_severity", "urgency",
 ]
 
 # ── data loading ──────────────────────────────────────────────────────────────
