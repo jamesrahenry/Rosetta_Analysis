@@ -220,7 +220,7 @@ elapsed
 step "4 / P5 CKA extraction — PRH proxy corpus"
 info "Extracts adjacent-layer CKA at proportional depths {0.3, 0.5, 0.7}."
 
-$PY alignment/p5/p5_cka_extract.py --limit "${N_PAIRS}" ${CACHE_FLAG}
+$PY alignment/p5/p5_cka_extract.py --limit "${N_PAIRS}" --proxy-only ${CACHE_FLAG}
 
 elapsed
 

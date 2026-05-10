@@ -243,6 +243,8 @@ def main():
                     help=f"Path to concept pair jsonl files (default: {DEFAULT_PAIRS_ROOT})")
     ap.add_argument("--no-clean-cache", action="store_true",
                     help="Keep model weights in HF cache after extraction")
+    ap.add_argument("--proxy-only", action="store_true",
+                    help="Restrict to PRH proxy corpus models (excludes frontier 40B+)")
     args = ap.parse_args()
 
     data_root: Path = args.data_root
@@ -255,6 +257,14 @@ def main():
         model_dirs = [data_root / args.model]
     else:
         model_dirs = sorted(p for p in data_root.iterdir() if p.is_dir())
+        if args.proxy_only:
+            import sys as _sys, pathlib as _pl
+            _sys.path.insert(0, str(_pl.Path(__file__).parent.parent.parent))
+            from extraction.extract import PRH_PROXY_MODELS
+            proxy_slugs = {m.replace("/", "_").replace("-", "_") for m in PRH_PROXY_MODELS}
+            before = len(model_dirs)
+            model_dirs = [d for d in model_dirs if d.name in proxy_slugs]
+            log.info("--proxy-only: %d → %d model dirs", before, len(model_dirs))
     log.info("Targets: %d model dir(s) × %d concept(s)",
              len(model_dirs), len(concepts))
 
