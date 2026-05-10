@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Analysis scripts for the Rosetta interpretability research program"
 requires-python = ">=3.11"
 dependencies = [
-    "rosetta-tools @ git+https://github.com/jamesrahenry/Rosetta_Tools.git@v1.1.0",
+    "rosetta-tools @ git+https://github.com/jamesrahenry/Rosetta_Tools.git@v1.2.0",
     "torch>=2.2.0",
     "transformers>=4.40.0",
     "numpy>=1.24.0",
