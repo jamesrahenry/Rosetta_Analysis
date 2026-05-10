@@ -288,8 +288,15 @@ def extract_layer_wise_metrics(model, tokenizer, pos_texts, neg_texts, device, b
 def extract_concept(concept, model, tokenizer, device, n_pairs, batch_size, out_dir):
     out_path = out_dir / f"caz_{concept}.json"
     if out_path.exists():
-        log.info("  [%s] %s already extracted — skipping", out_dir.name, concept)
-        return {"concept": concept, "skipped": True}
+        try:
+            existing_n = json.loads(out_path.read_text()).get("n_pairs", 0)
+        except (json.JSONDecodeError, OSError):
+            existing_n = 0
+        requested = n_pairs or 200
+        if existing_n >= requested:
+            log.info("  [%s] %s already extracted (n=%d) — skipping", out_dir.name, concept, existing_n)
+            return {"concept": concept, "skipped": True}
+        log.info("  [%s] %s exists at n=%d < requested %d — re-extracting", out_dir.name, concept, existing_n, requested)
 
     pairs = load_concept_pairs(concept, n=n_pairs or 200)
 
@@ -378,8 +385,17 @@ def run_model(model_id: str, concepts: list[str], args, device_override: str | N
     out_dir = ROSETTA_DATA_ROOT / "models" / model_slug
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    # Skip model entirely if every concept file already exists.
-    remaining = [c for c in concepts if not (out_dir / f"caz_{c}.json").exists()]
+    # Skip model entirely if every concept file already exists at >= requested n_pairs.
+    requested_n = args.n_pairs or 200
+    def _needs_extraction(concept):
+        p = out_dir / f"caz_{concept}.json"
+        if not p.exists():
+            return True
+        try:
+            return json.loads(p.read_text()).get("n_pairs", 0) < requested_n
+        except (json.JSONDecodeError, OSError):
+            return True
+    remaining = [c for c in concepts if _needs_extraction(c)]
     if not remaining:
         log.info("  All %d concepts already extracted — skipping model load", len(concepts))
         return

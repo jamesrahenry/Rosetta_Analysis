@@ -20,7 +20,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-N_PAIRS=250
+N_PAIRS=100
 QUICK=false
 NO_CLEAN_CACHE=false
 GPU_ONLY=false
