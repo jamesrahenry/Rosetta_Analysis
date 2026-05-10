@@ -66,10 +66,14 @@ def p5_battery() -> dict:
     return json.loads(P5_BATTERY_FILE.read_text())
 
 
+_INSTRUCT_MARKERS = ("_Instruct", "_instruct", "_it_p1n100")
+
+
 @pytest.fixture(scope="session")
 def all_p1_caz() -> dict:
-    """All P1 snapshot slugs with full concept coverage -> {slug: {concept: (data, metrics)}}.
-    Reads from ROSETTA_MODELS_SNAPSHOTS, filtering dirs with the _p1n100 suffix."""
+    """Base-model P1 snapshots with full concept coverage -> {slug: {concept: (data, metrics)}}.
+    Reads from ROSETTA_MODELS_SNAPSHOTS, filtering to _p1n100 base models only.
+    Instruct variants are excluded — P1 paper claims are established on base models."""
     if not ROSETTA_MODELS_SNAPSHOTS.exists():
         pytest.skip(f"ROSETTA_MODELS_SNAPSHOTS not found: {ROSETTA_MODELS_SNAPSHOTS}")
 
@@ -79,13 +83,15 @@ def all_p1_caz() -> dict:
             continue
         if not slug_dir.name.endswith(P1_SNAPSHOT_SUFFIX):
             continue
+        if any(m in slug_dir.name for m in _INSTRUCT_MARKERS):
+            continue
         model_data = _load_model_concepts(slug_dir.name)
         if model_data:
             result[slug_dir.name] = model_data
 
     if not result:
         pytest.skip(
-            f"No P1 snapshots (*{P1_SNAPSHOT_SUFFIX}) with full concept coverage found "
+            f"No P1 base-model snapshots (*{P1_SNAPSHOT_SUFFIX}) with full concept coverage found "
             f"under {ROSETTA_MODELS_SNAPSHOTS}. Run: ./scripts/reproduce_p1.sh --gpu-only"
         )
     return result
