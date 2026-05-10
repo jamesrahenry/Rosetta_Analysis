@@ -210,6 +210,22 @@ $PY alignment/p5/p5_cka_extract.py ${CACHE_FLAG}
 
 elapsed
 
+# ---------------------------------------------------------------------------
+# Optional: Cluster F frontier models (H200 only) — runs before --gpu-only
+# exit so that --gpu-only --with-frontier works as expected.
+# ---------------------------------------------------------------------------
+if [ "${WITH_FRONTIER}" = true ]; then
+    step "4b / CAZ extraction — Cluster F frontier (falcon-40b, Llama-70B, Qwen-72B)"
+    info "H200 only — requires ~140GB VRAM for 70B models."
+
+    $PY extraction/extract.py \
+        --prh-frontier \
+        --n-pairs "${N_PAIRS}" \
+        ${CACHE_FLAG}
+
+    elapsed
+fi
+
 if [ "${GPU_ONLY}" = true ]; then
     END_UTC=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
     TOTAL_MIN=$(( ($(date +%s) - START_TS) / 60 ))
@@ -313,20 +329,11 @@ $PY alignment/p5/p5_validation_battery.py --out-dir "${PAPER_OUT}/p5"
 elapsed
 
 # ---------------------------------------------------------------------------
-# Optional: Cluster F frontier models (H200 only)
+# Optional: Procrustes alignment including frontier models (CPU)
+# Frontier extraction already completed at step 4b.
 # ---------------------------------------------------------------------------
 if [ "${WITH_FRONTIER}" = true ]; then
-    step "10 / CAZ extraction — Cluster F frontier (falcon-40b, Llama-70B, Qwen-72B)"
-    info "H200 only — requires ~140GB VRAM for 70B models."
-
-    $PY extraction/extract.py \
-        --prh-frontier \
-        --n-pairs "${N_PAIRS}" \
-        ${CACHE_FLAG}
-
-    elapsed
-
-    step "11 / Procrustes alignment — including frontier models"
+    step "10 / Procrustes alignment — including frontier models"
 
     $PY alignment/align.py --all --same-dim-only \
         --out "${PAPER_OUT}/prh_with_frontier.csv"
