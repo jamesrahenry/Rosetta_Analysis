@@ -156,6 +156,7 @@ $PY extraction/extract.py \
     --model openai-community/gpt2-xl \
     --n-pairs "${N_PAIRS}" \
     --concepts ${P1_CONCEPTS} \
+    --model-dir-suffix _p1n100 \
     ${CACHE_FLAG}
 
 elapsed

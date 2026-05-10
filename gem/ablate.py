@@ -328,7 +328,14 @@ def ablation_sweep(
 # ---------------------------------------------------------------------------
 
 def run_model(model_id: str, concepts: list[str], args) -> None:
-    extraction_dir = find_extraction_dir(model_id)
+    dir_suffix = getattr(args, "model_dir_suffix", None) or ""
+    if dir_suffix:
+        from pathlib import Path
+        model_slug = model_id.replace("/", "_").replace("-", "_")
+        candidate = Path.home() / "rosetta_data" / "model_snapshots" / (model_slug + dir_suffix)
+        extraction_dir = candidate if candidate.is_dir() else None
+    else:
+        extraction_dir = find_extraction_dir(model_id)
     if extraction_dir is None:
         log.error("No extraction results found for %s — run extract.py first", model_id)
         return
@@ -418,6 +425,8 @@ def parse_args():
     group.add_argument("--p3-corpus", action="store_true", help="Paper 3 CAZ Validation: 26 base models")
     parser.add_argument("--concepts", nargs="+", default=None,
                         help="Concepts to ablate (default: all with extraction results)")
+    parser.add_argument("--model-dir-suffix", type=str, default="",
+                        help="Read extraction results from model directory with this suffix appended")
     parser.add_argument("--n-pairs", type=int, default=50,
                         help="Number of contrastive pairs for separation measurement (default: 50)")
     parser.add_argument("--batch-size", type=int, default=4)

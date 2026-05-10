@@ -382,7 +382,12 @@ def run_model(model_id: str, concepts: list[str], args, device_override: str | N
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     model_slug = model_id.replace("/", "_").replace("-", "_")
-    out_dir = ROSETTA_DATA_ROOT / "models" / model_slug
+    dir_suffix = getattr(args, "model_dir_suffix", None) or ""
+    if dir_suffix:
+        snapshots_root = Path.home() / "rosetta_data" / "model_snapshots"
+        out_dir = snapshots_root / (model_slug + dir_suffix)
+    else:
+        out_dir = ROSETTA_DATA_ROOT / "models" / model_slug
     out_dir.mkdir(parents=True, exist_ok=True)
 
     # Skip model entirely if every concept file already exists at >= requested n_pairs.
@@ -635,6 +640,8 @@ def parse_args():
                         help="With --all, also include frontier models")
     parser.add_argument("--concepts", nargs="+", default=None)
     parser.add_argument("--n-pairs", type=int, default=200)
+    parser.add_argument("--model-dir-suffix", type=str, default="",
+                        help="Append suffix to model directory name (e.g. _p1n100 for isolated P1 storage)")
     parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--device", choices=["cuda", "cpu", "auto"], default="auto")
     parser.add_argument("--dtype", choices=["auto", "bfloat16", "float32"], default="auto",
