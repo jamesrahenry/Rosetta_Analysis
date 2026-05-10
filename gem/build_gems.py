@@ -60,7 +60,7 @@ def build_model_gems(
     extraction_dir = find_extraction_dir(model_id)
     if extraction_dir is None:
         log.error("No extraction results for %s", model_id)
-        return {}
+        return None
 
     if concepts is None:
         concepts = discover_concepts(extraction_dir, source="caz")
@@ -234,15 +234,21 @@ def main():
         models = [m for m in models if m not in skip]
 
     all_results = {}
+    any_extraction_found = False
     for model_id in models:
         results = build_model_gems(
             model_id, concepts, k=args.k, force=args.force,
         )
+        if results is None:
+            continue  # no extraction dir — already logged as error
+        any_extraction_found = True
         if results:
             all_results[model_id] = results
 
     if all_results:
         print_summary(all_results)
+    elif any_extraction_found:
+        log.info("All GEMs already up-to-date.")
     else:
         log.warning("No GEMs built. Check that extraction data exists.")
 
