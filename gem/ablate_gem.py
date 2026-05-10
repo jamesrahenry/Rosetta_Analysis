@@ -81,9 +81,10 @@ CONCEPTS = [
     "threat_severity", "urgency",
 ]
 
-# Paper 2 (GEM) canonical model set — 16 models, 17 concepts = 272 ablation pairs.
+# Paper 2 (GEM) canonical model set — 16 models, 6 families, 17 concepts = 272 ablation pairs.
+# Appendix A: Pythia×7, gpt2×1, OPT×1, Qwen2.5×5 (0.5B–14B), Mistral×1, Gemma-2×1
 P2_MODELS: list[str] = [
-    # Pythia scale ladder (EleutherAI)
+    # Pythia scale ladder (EleutherAI) — 70M–12B
     "EleutherAI/pythia-70m",
     "EleutherAI/pythia-160m",
     "EleutherAI/pythia-410m",
@@ -91,18 +92,19 @@ P2_MODELS: list[str] = [
     "EleutherAI/pythia-2.8b",
     "EleutherAI/pythia-6.9b",
     "EleutherAI/pythia-12b",
-    # GPT-2 family (OpenAI)
+    # GPT-2 (OpenAI)
     "openai-community/gpt2",
-    "openai-community/gpt2-large",
-    "openai-community/gpt2-xl",
     # OPT (Meta)
     "facebook/opt-6.7b",
-    # Qwen2.5 (Alibaba)
+    # Qwen2.5 (Alibaba) — 0.5B–14B
     "Qwen/Qwen2.5-0.5B",
     "Qwen/Qwen2.5-1.5B",
     "Qwen/Qwen2.5-3B",
     "Qwen/Qwen2.5-7B",
-    # Gemma (Google)
+    "Qwen/Qwen2.5-14B",
+    # Mistral (Mistral AI)
+    "mistralai/Mistral-7B-v0.3",
+    # Gemma-2 (Google)
     "google/gemma-2-9b",
 ]
 

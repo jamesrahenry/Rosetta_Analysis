@@ -148,6 +148,33 @@ P1_MODELS: list[str] = [
     "google/gemma-2-9b-it",
 ]
 
+# Paper 2 (GEM) canonical model set — 16 models, 6 families, 17 concepts = 272 ablation pairs.
+# Appendix A: Pythia×7, gpt2×1, OPT×1, Qwen2.5×5 (0.5B–14B), Mistral×1, Gemma-2×1
+P2_MODELS: list[str] = [
+    # Pythia scale ladder (EleutherAI) — 70M–12B
+    "EleutherAI/pythia-70m",
+    "EleutherAI/pythia-160m",
+    "EleutherAI/pythia-410m",
+    "EleutherAI/pythia-1b",
+    "EleutherAI/pythia-2.8b",
+    "EleutherAI/pythia-6.9b",
+    "EleutherAI/pythia-12b",
+    # GPT-2 (OpenAI)
+    "openai-community/gpt2",
+    # OPT (Meta)
+    "facebook/opt-6.7b",
+    # Qwen2.5 (Alibaba) — 0.5B–14B
+    "Qwen/Qwen2.5-0.5B",
+    "Qwen/Qwen2.5-1.5B",
+    "Qwen/Qwen2.5-3B",
+    "Qwen/Qwen2.5-7B",
+    "Qwen/Qwen2.5-14B",
+    # Mistral (Mistral AI)
+    "mistralai/Mistral-7B-v0.3",
+    # Gemma-2 (Google)
+    "google/gemma-2-9b",
+]
+
 # Paper 3 (CAZ Validation) canonical model set — 26 base models across
 # 8 architecture families, 7 concepts (credibility, certainty, causation,
 # temporal_order, negation, sentiment, moral_valence).
@@ -699,7 +726,9 @@ def parse_args():
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--model", type=str)
     group.add_argument("--p1-corpus", action="store_true",
-                       help="Paper 1 CAZ corpus: 19 L4-runnable models across 8 architectural families")
+                       help="Paper 1 CAZ corpus: 34 models (26 base + 8 instruct) across 8 architectural families")
+    group.add_argument("--p2-corpus", action="store_true",
+                       help="Paper 2 GEM corpus: 16 base models (Appendix A), 17 concepts, N=250 pairs")
     group.add_argument("--p3-corpus", action="store_true",
                        help="Paper 3 CAZ Validation: 26 base models across 8 architecture families")
     group.add_argument("--p3-corpus-instruct", action="store_true",
@@ -751,6 +780,8 @@ def main():
 
     if args.p1_corpus:
         models = P1_MODELS
+    elif args.p2_corpus:
+        models = P2_MODELS
     elif args.p3_corpus:
         models = P3_MODELS
     elif args.p3_corpus_instruct:

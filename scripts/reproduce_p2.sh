@@ -194,7 +194,7 @@ step "3 / CAZ extraction — full P2 corpus (16 models, N=${N_PAIRS} pairs)"
 info "Skips models already extracted."
 
 $PY extraction/extract.py \
-    --p1-corpus \
+    --p2-corpus \
     --n-pairs "${N_PAIRS}" \
     ${CACHE_FLAG}
 
