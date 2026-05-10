@@ -565,6 +565,8 @@ def main():
     records = load_all_results()
 
     if args.p2_corpus:
+        import sys as _sys, pathlib as _pl
+        _sys.path.insert(0, str(_pl.Path(__file__).parent.parent))
         from gem.ablate_gem import P2_MODELS
         p2_set = set(P2_MODELS)
         before = len(records)
