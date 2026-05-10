@@ -7,19 +7,19 @@ can run do run regardless of which machine or partial dataset is present.
 import json
 import pytest
 
-from rosetta_tools.paths import ROSETTA_MODELS, ROSETTA_RESULTS
+from rosetta_tools.paths import ROSETTA_MODELS_SNAPSHOTS, ROSETTA_RESULTS
 from validation.p1_caz_framework._helpers import (
-    P1_CONCEPTS, GPT2XL_SLUG,
+    P1_CONCEPTS, P1_SNAPSHOT_SUFFIX, GPT2XL_SLUG,
     P5_SAMEDIM_FILE, P5_BATTERY_FILE,
     metrics_from_caz_json,
 )
 
 
 def _load_model_concepts(slug: str) -> dict:
-    """Load all P1 concepts for one model. Returns {concept: (raw_dict, metrics)},
-    or empty dict if any concept file is missing."""
+    """Load all P1 concepts for one model from ROSETTA_MODELS_SNAPSHOTS.
+    Returns {concept: (raw_dict, metrics)}, or empty dict if any concept file is missing."""
     result = {}
-    slug_dir = ROSETTA_MODELS / slug
+    slug_dir = ROSETTA_MODELS_SNAPSHOTS / slug
     for concept in P1_CONCEPTS:
         path = slug_dir / f"caz_{concept}.json"
         if not path.exists():
@@ -31,51 +31,53 @@ def _load_model_concepts(slug: str) -> dict:
 
 @pytest.fixture(scope="session")
 def gpt2xl_caz() -> dict:
-    """Dict[concept] -> (raw_json, list[LayerMetrics]) for GPT-2-XL.
+    """Dict[concept] -> (raw_json, list[LayerMetrics]) for GPT-2-XL (P1 N=100 snapshot).
     Skips if CAZ extraction files are not present locally."""
     d = _load_model_concepts(GPT2XL_SLUG)
     if not d:
         pytest.skip(
-            f"GPT-2-XL CAZ data not found at {ROSETTA_MODELS / GPT2XL_SLUG}. "
-            "Run: python caz/deep_dive.py --model openai-community/gpt2-xl --n-pairs 200"
+            f"GPT-2-XL P1 CAZ data not found at {ROSETTA_MODELS_SNAPSHOTS / GPT2XL_SLUG}. "
+            "Run: ./scripts/reproduce_p1.sh --gpu-only"
         )
     return d
 
 
 @pytest.fixture(scope="session")
 def p5_samedim() -> dict:
-    """P5 proportional-depth samedim result JSON.
+    """P5 proportional-depth samedim result JSON (CAZ_Framework/p5/).
     Skips if the result file has not been synced locally."""
     if not P5_SAMEDIM_FILE.exists():
         pytest.skip(
             f"P5 result not found: {P5_SAMEDIM_FILE}. "
-            "Run: python alignment/p5/run_p5_samedim.py  (or sync from GPU)"
+            "Run: ./scripts/reproduce_p1.sh  (or sync from mi-host)"
         )
     return json.loads(P5_SAMEDIM_FILE.read_text())
 
 
 @pytest.fixture(scope="session")
 def p5_battery() -> dict:
-    """P5 validation battery (null tests) JSON.
+    """P5 validation battery (null tests) JSON (CAZ_Framework/p5/).
     Skips if the result file has not been synced locally."""
     if not P5_BATTERY_FILE.exists():
         pytest.skip(
             f"P5 battery not found: {P5_BATTERY_FILE}. "
-            "Run: python alignment/p5/run_p5_battery.py  (or sync from GPU)"
+            "Run: ./scripts/reproduce_p1.sh  (or sync from mi-host)"
         )
     return json.loads(P5_BATTERY_FILE.read_text())
 
 
 @pytest.fixture(scope="session")
 def all_p1_caz() -> dict:
-    """All model slugs with full P1 concept coverage -> {slug: {concept: (data, metrics)}}.
-    Skips if ROSETTA_MODELS directory is empty or absent."""
-    if not ROSETTA_MODELS.exists():
-        pytest.skip(f"ROSETTA_MODELS not found: {ROSETTA_MODELS}")
+    """All P1 snapshot slugs with full concept coverage -> {slug: {concept: (data, metrics)}}.
+    Reads from ROSETTA_MODELS_SNAPSHOTS, filtering dirs with the _p1n100 suffix."""
+    if not ROSETTA_MODELS_SNAPSHOTS.exists():
+        pytest.skip(f"ROSETTA_MODELS_SNAPSHOTS not found: {ROSETTA_MODELS_SNAPSHOTS}")
 
     result = {}
-    for slug_dir in sorted(ROSETTA_MODELS.iterdir()):
+    for slug_dir in sorted(ROSETTA_MODELS_SNAPSHOTS.iterdir()):
         if not slug_dir.is_dir():
+            continue
+        if not slug_dir.name.endswith(P1_SNAPSHOT_SUFFIX):
             continue
         model_data = _load_model_concepts(slug_dir.name)
         if model_data:
@@ -83,7 +85,7 @@ def all_p1_caz() -> dict:
 
     if not result:
         pytest.skip(
-            f"No models with full P1 concept coverage found under {ROSETTA_MODELS}. "
-            "Run CAZ extraction for at least one model to enable these tests."
+            f"No P1 snapshots (*{P1_SNAPSHOT_SUFFIX}) with full concept coverage found "
+            f"under {ROSETTA_MODELS_SNAPSHOTS}. Run: ./scripts/reproduce_p1.sh --gpu-only"
         )
     return result

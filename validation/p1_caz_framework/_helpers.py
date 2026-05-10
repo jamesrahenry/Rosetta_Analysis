@@ -4,7 +4,7 @@ from pathlib import Path
 
 import numpy as np
 
-from rosetta_tools.paths import ROSETTA_MODELS, ROSETTA_RESULTS
+from rosetta_tools.paths import ROSETTA_MODELS, ROSETTA_MODELS_SNAPSHOTS, ROSETTA_RESULTS
 from rosetta_tools.caz import LayerMetrics, compute_velocity
 
 # The 7 concepts used in the Paper 1 proof-of-concept corpus
@@ -13,10 +13,12 @@ P1_CONCEPTS = [
     "temporal_order", "sentiment", "negation", "moral_valence",
 ]
 
-GPT2XL_SLUG = "openai_community_gpt2_xl"
+# P1 uses N=100 pairs, stored in ROSETTA_MODELS_SNAPSHOTS with _p1n100 suffix
+P1_SNAPSHOT_SUFFIX = "_p1n100"
+GPT2XL_SLUG = "openai_community_gpt2_xl_p1n100"
 
-P5_SAMEDIM_FILE = ROSETTA_RESULTS / "p5_permutation" / "p5_propdepth_samedim_results.json"
-P5_BATTERY_FILE = ROSETTA_RESULTS / "p5_permutation" / "p5_validation_battery.json"
+P5_SAMEDIM_FILE = ROSETTA_RESULTS / "CAZ_Framework" / "p5" / "p5_propdepth_samedim_results.json"
+P5_BATTERY_FILE = ROSETTA_RESULTS / "CAZ_Framework" / "p5" / "p5_validation_battery.json"
 
 
 def metrics_from_caz_json(caz_data: dict) -> list:
