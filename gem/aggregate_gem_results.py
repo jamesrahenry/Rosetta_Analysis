@@ -19,7 +19,7 @@ import math
 
 from rosetta_tools.paths import ROSETTA_MODELS
 RESULTS_DIR = str(ROSETTA_MODELS)
-_FILTER_WIDTH = 3  # overridden by --width arg; None = accept all
+_FILTER_WIDTH = None  # overridden by --width arg; None = accept all widths
 OUTPUT_MD = os.path.join(os.path.dirname(__file__), "..", "results", "gem_sweep_aggregate.md")
 
 # Parameter counts (billions)
