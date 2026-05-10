@@ -482,8 +482,10 @@ def run_model(model_id: str, concepts: list[str], args, device_override: str | N
         json.dump(index, f, indent=2)
 
     # Write provenance metadata alongside results
+    hf_revision_sha = getattr(model.config, "_commit_hash", None) or "unknown"
     metadata = {
         "model_id": model_id,
+        "hf_revision_sha": hf_revision_sha,
         "extracted_at": timestamp,
         "quantization": quant,
         "n_pairs_cap": args.n_pairs or 200,

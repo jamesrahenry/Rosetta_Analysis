@@ -61,13 +61,19 @@ RD_CACHE_FLAG=""
 # ---------------------------------------------------------------------------
 step() { echo; echo "══════════════════════════════════════════"; echo "  $*"; echo "══════════════════════════════════════════"; }
 info() { echo "  [INFO] $*"; }
-elapsed() { echo "  [TIME] Elapsed: $(( ($(date +%s) - START_TS) / 60 ))m"; }
+elapsed() { echo "  [TIME] $(date -u +"%H:%M:%S UTC") — $(( ($(date +%s) - START_TS) / 60 ))m elapsed"; }
 
 START_TS=$(date +%s)
+START_UTC=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 PAPER_OUT="${HOME}/rosetta_data/results/CAZ_Validation"
 mkdir -p "${PAPER_OUT}"
 
 cd "${REPO_ROOT}"
+
+RA_SHA=$(git rev-parse HEAD 2>/dev/null || echo "unknown")
+RT_SHA=$(git -C rosetta_tools rev-parse HEAD 2>/dev/null || echo "unknown")
+RCP_SHA=$(git -C "${HOME}/Source/Rosetta_Concept_Pairs" rev-parse HEAD 2>/dev/null || \
+          git -C "${HOME}/Rosetta_Concept_Pairs" rev-parse HEAD 2>/dev/null || echo "unknown")
 
 # ---------------------------------------------------------------------------
 # Resolve Python — prefer uv, fall back to whatever is in PATH
@@ -124,6 +130,30 @@ PYCHECK
 
 info "Environment OK"
 elapsed
+
+# ---------------------------------------------------------------------------
+# Provenance snapshot — git SHAs + run metadata
+# ---------------------------------------------------------------------------
+info "Started: ${START_UTC}"
+info "rosetta_analysis: ${RA_SHA}"
+info "rosetta_tools:    ${RT_SHA}"
+info "concept_pairs:    ${RCP_SHA}"
+
+$PY - <<PYPROV
+import json
+from pathlib import Path
+prov = {
+    "started_utc": "${START_UTC}",
+    "rosetta_analysis_sha": "${RA_SHA}",
+    "rosetta_tools_sha": "${RT_SHA}",
+    "concept_pairs_sha": "${RCP_SHA}",
+    "n_pairs": ${N_PAIRS},
+    "hf_model_revisions": {},
+}
+out = Path("${PAPER_OUT}") / "provenance.json"
+out.write_text(json.dumps(prov, indent=2))
+print(f"  Provenance initialized: {out}")
+PYPROV
 
 # ---------------------------------------------------------------------------
 # Step 1 — CAZ extraction: GPT-2-XL (proof-of-concept model)
@@ -211,8 +241,8 @@ elapsed
 
 if [ "${GPU_ONLY}" = true ]; then
     echo
-    echo "  --gpu-only: GPU extraction, ablation, and patching complete. Run without --gpu-only for CPU analysis."
-    echo "  Total: $(( ($(date +%s) - START_TS) / 60 ))m"
+    echo "  --gpu-only: GPU extraction, ablation, and patching complete. $(date -u +"%H:%M:%S UTC") ($(( ($(date +%s) - START_TS) / 60 ))m)"
+    echo "  Run without --gpu-only for CPU analysis. Provenance: ${PAPER_OUT}/provenance.json (no HF revisions yet)"
     exit 0
 fi
 
@@ -249,8 +279,47 @@ if [ "${WITH_INSTRUCT}" = true ]; then
     elapsed
 fi
 
+END_UTC=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+TOTAL_MIN=$(( ($(date +%s) - START_TS) / 60 ))
+
+$PY - <<PYPROV
+import json, sys
+from pathlib import Path
+sys.path.insert(0, ".")
+from extraction.extract import P3_MODELS, P3_INSTRUCT_MODELS
+from rosetta_tools.paths import ROSETTA_MODELS
+
+all_models = P3_MODELS + (P3_INSTRUCT_MODELS if "${WITH_INSTRUCT}" == "true" else [])
+
+def _slug(mid): return mid.replace("/", "_").replace("-", "_")
+
+revisions = {}
+for model_id in all_models:
+    meta = ROSETTA_MODELS / _slug(model_id) / "metadata.json"
+    if meta.exists():
+        try:
+            sha = json.loads(meta.read_text()).get("hf_revision_sha")
+            if sha and sha != "unknown":
+                revisions[model_id] = sha
+        except Exception:
+            pass
+
+prov_path = Path("${PAPER_OUT}") / "provenance.json"
+if prov_path.exists():
+    prov = json.loads(prov_path.read_text())
+    prov["completed_utc"] = "${END_UTC}"
+    prov["total_minutes"] = ${TOTAL_MIN}
+    prov["hf_model_revisions"] = revisions
+    prov_path.write_text(json.dumps(prov, indent=2))
+    missing = [m for m in all_models if m not in revisions]
+    print(f"  Provenance: {len(revisions)}/{len(all_models)} revision hashes")
+    if missing:
+        print(f"  [WARN] missing: {', '.join(m.split('/')[-1] for m in missing)}", file=sys.stderr)
+PYPROV
+
 echo
-echo "  Paper 3 reproduction complete. Total: $(( ($(date +%s) - START_TS) / 60 ))m"
+echo "  Paper 3 reproduction complete. Completed: ${END_UTC} (${TOTAL_MIN}m)"
 echo "  Scored analysis:     ${PAPER_OUT}/scored_analysis.md"
 echo "  Ablation results:    rosetta_data/models/<model>/ablation_<concept>.json"
 echo "  Patching results:    rosetta_data/models/<model>/patch_<concept>.json"
+echo "  Provenance:          ${PAPER_OUT}/provenance.json"
