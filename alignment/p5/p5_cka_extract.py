@@ -98,8 +98,18 @@ def proportional_depth_layers(n_layers: int, fractions: list[float]) -> list[int
             for f in fractions]
 
 
-def already_extracted(model_dir: Path, concept: str) -> bool:
-    return (model_dir / f"cka_acts_{concept}.npz").exists()
+def already_extracted(model_dir: Path, concept: str, limit: int = 0) -> bool:
+    p = model_dir / f"cka_acts_{concept}.npz"
+    if not p.exists():
+        return False
+    if limit <= 0:
+        return True
+    try:
+        import numpy as _np
+        n = _np.load(p)["acts"].shape[0]
+        return n >= limit * 2  # pos + neg
+    except Exception:
+        return False
 
 
 def model_id_from_dir(model_dir: Path) -> str:
@@ -137,7 +147,7 @@ def extract_one_model(model_dir: Path, concepts: list[str], limit: int,
     log.info("=== %s (id=%s) ===", model_dir.name, model_id)
 
     # Determine which concepts still need extraction.
-    todo = [c for c in concepts if not already_extracted(model_dir, c)]
+    todo = [c for c in concepts if not already_extracted(model_dir, c, limit)]
     if not todo:
         log.info("  all concepts already extracted, skipping load")
         return
