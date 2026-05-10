@@ -64,6 +64,7 @@ from rosetta_tools.caz import compute_separation, compute_coherence, compute_vel
 from rosetta_tools.dataset import (
     load_concept_pairs, texts_by_label, CAZ_PRH_CONCEPTS,
 )
+import rosetta_tools as _rt
 from rosetta_tools.tracking import start_run, log_concept, end_run
 
 logging.basicConfig(
@@ -342,6 +343,65 @@ def extract_concept(concept, model, tokenizer, device, n_pairs, batch_size, out_
     # Save all-layer calibration activations for depth-matched alignment
     all_cal_path = out_dir / f"calibration_alllayer_{concept}.npy"
     np.save(all_cal_path, all_layer_cal)
+
+    # Rich provenance metadata — one JSON per concept covers both npy files.
+    cfg = model.config
+    attn = "mha"
+    kv_heads = getattr(cfg, "num_key_value_heads", None)
+    n_heads  = getattr(cfg, "num_attention_heads", None)
+    if kv_heads is not None and n_heads is not None and kv_heads != n_heads:
+        attn = "gqa"
+    if getattr(cfg, "num_experts", None) or getattr(cfg, "num_local_experts", None):
+        attn = "moe"
+
+    meta = {
+        "schema_version": "1",
+        "extracted_utc": datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC"),
+        "rosetta_tools_version": getattr(_rt, "__version__", "unknown"),
+        "model": {
+            "model_id": model_id,
+            "architecture": type(model).__name__,
+            "hidden_dim": cfg.hidden_size,
+            "n_layers": cfg.num_hidden_layers,
+            "attention_paradigm": attn,
+        },
+        "concept": concept,
+        "extraction": {
+            "n_pairs_requested": n_pairs or 200,
+            "n_pairs_used": len(pairs),
+            "split": "train",
+            "pooling_strategy": "last",
+            "batch_size": batch_size,
+            "token_pos": -1,
+            "extraction_seconds": round(elapsed, 1),
+        },
+        "corpus": {
+            "version": "v1",
+            "source_file": f"Rosetta_Concept_Pairs/pairs/raw/v1/{concept}_consensus_pairs.jsonl",
+            "pair_ids": [p.pair_id for p in pairs],
+            "domains": sorted({p.domain for p in pairs}),
+            "topics": sorted({p.topic for p in pairs}),
+        },
+        "files": {
+            f"calibration_{concept}.npy": {
+                "description": "Peak-layer calibration activations (positive then negative examples stacked)",
+                "peak_layer": layer_data["peak_layer"],
+                "peak_depth_pct": layer_data["peak_depth_pct"],
+                "shape": list(cal_acts.shape),
+                "dtype": "float32",
+                "layout": "rows 0..n_pairs-1 = positive, rows n_pairs..end = negative",
+            },
+            f"calibration_alllayer_{concept}.npy": {
+                "description": "All-layer calibration activations",
+                "shape": list(all_layer_cal.shape),
+                "dtype": "float32",
+                "layout": "axis 0 = layer (0..n_layers-1), axis 1 = samples (positive then negative), axis 2 = hidden_dim",
+            },
+        },
+    }
+    meta_path = out_dir / f"calibration_{concept}_meta.json"
+    with meta_path.open("w") as f:
+        json.dump(meta, f, indent=2)
 
     log.info(
         "  [%s] %s → peak L%d (%.1f%%) S=%.4f  (%.1fs)  cal=%s",
