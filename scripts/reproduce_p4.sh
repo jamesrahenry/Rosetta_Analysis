@@ -211,9 +211,39 @@ $PY alignment/p5/p5_cka_extract.py ${CACHE_FLAG}
 elapsed
 
 if [ "${GPU_ONLY}" = true ]; then
+    END_UTC=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    TOTAL_MIN=$(( ($(date +%s) - START_TS) / 60 ))
+    $PY - <<PYPROV
+import json, sys
+from pathlib import Path
+sys.path.insert(0, ".")
+from extraction.extract import PRH_PROXY_MODELS, PRH_FRONTIER_MODELS
+from rosetta_tools.paths import ROSETTA_MODELS
+corpus = PRH_PROXY_MODELS + (PRH_FRONTIER_MODELS if "${WITH_FRONTIER}" == "true" else [])
+def _slug(mid): return mid.replace("/", "_").replace("-", "_")
+revisions = {}
+for model_id in corpus:
+    meta = ROSETTA_MODELS / _slug(model_id) / "metadata.json"
+    if meta.exists():
+        try:
+            sha = json.loads(meta.read_text()).get("hf_revision_sha")
+            if sha and sha != "unknown":
+                revisions[model_id] = sha
+        except Exception:
+            pass
+prov_path = Path("${PAPER_OUT}") / "provenance.json"
+if prov_path.exists():
+    prov = json.loads(prov_path.read_text())
+    prov["completed_utc"] = "${END_UTC}"
+    prov["total_minutes"] = ${TOTAL_MIN}
+    prov["gpu_only"] = True
+    prov["hf_model_revisions"] = revisions
+    prov_path.write_text(json.dumps(prov, indent=2))
+    print(f"  Provenance: {len(revisions)}/{len(corpus)} revision hashes — {prov_path}")
+PYPROV
     echo
-    echo "  --gpu-only: GPU extraction and CKA complete. $(date -u +"%H:%M:%S UTC") ($(( ($(date +%s) - START_TS) / 60 ))m)"
-    echo "  Run without --gpu-only for Procrustes and P5 analysis. Provenance: ${PAPER_OUT}/provenance.json (no HF revisions yet)"
+    echo "  --gpu-only: extraction + random calib + P5 CKA complete. ${END_UTC} (${TOTAL_MIN}m)"
+    echo "  Run without --gpu-only for Procrustes, alignment nulls, and P5 analysis."
     exit 0
 fi
 

@@ -240,9 +240,39 @@ $PY gem/ablate_random_direction.py \
 elapsed
 
 if [ "${GPU_ONLY}" = true ]; then
+    END_UTC=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    TOTAL_MIN=$(( ($(date +%s) - START_TS) / 60 ))
+    $PY - <<PYPROV
+import json, sys
+from pathlib import Path
+sys.path.insert(0, ".")
+from extraction.extract import P3_MODELS, P3_INSTRUCT_MODELS
+from rosetta_tools.paths import ROSETTA_MODELS
+all_models = P3_MODELS + (P3_INSTRUCT_MODELS if "${WITH_INSTRUCT}" == "true" else [])
+def _slug(mid): return mid.replace("/", "_").replace("-", "_")
+revisions = {}
+for model_id in all_models:
+    meta = ROSETTA_MODELS / _slug(model_id) / "metadata.json"
+    if meta.exists():
+        try:
+            sha = json.loads(meta.read_text()).get("hf_revision_sha")
+            if sha and sha != "unknown":
+                revisions[model_id] = sha
+        except Exception:
+            pass
+prov_path = Path("${PAPER_OUT}") / "provenance.json"
+if prov_path.exists():
+    prov = json.loads(prov_path.read_text())
+    prov["completed_utc"] = "${END_UTC}"
+    prov["total_minutes"] = ${TOTAL_MIN}
+    prov["gpu_only"] = True
+    prov["hf_model_revisions"] = revisions
+    prov_path.write_text(json.dumps(prov, indent=2))
+    print(f"  Provenance: {len(revisions)}/{len(all_models)} revision hashes — {prov_path}")
+PYPROV
     echo
-    echo "  --gpu-only: GPU extraction, ablation, and patching complete. $(date -u +"%H:%M:%S UTC") ($(( ($(date +%s) - START_TS) / 60 ))m)"
-    echo "  Run without --gpu-only for CPU analysis. Provenance: ${PAPER_OUT}/provenance.json (no HF revisions yet)"
+    echo "  --gpu-only: extraction + ablation + patching complete. ${END_UTC} (${TOTAL_MIN}m)"
+    echo "  Run without --gpu-only for scored analysis + cross-arch ordering."
     exit 0
 fi
 
