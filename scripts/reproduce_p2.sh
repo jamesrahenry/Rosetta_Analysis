@@ -131,6 +131,13 @@ $PY extraction/extract.py \
 elapsed
 
 # ---------------------------------------------------------------------------
+# Step 1b — Build GEMs: GPT-2-XL (CPU — reads caz_*.json, writes gem_*.json)
+# ---------------------------------------------------------------------------
+step "1b / Build GEMs — GPT-2-XL"
+$PY gem/build_gems.py --model openai-community/gpt2-xl
+elapsed
+
+# ---------------------------------------------------------------------------
 # Step 2 — GEM ablation: GPT-2-XL (proof-of-concept)
 # ---------------------------------------------------------------------------
 step "2 / GEM ablation — GPT-2-XL (handoff vs peak, N=${N_PAIRS} pairs)"
@@ -161,6 +168,13 @@ $PY extraction/extract.py \
     --n-pairs "${N_PAIRS}" \
     ${CACHE_FLAG}
 
+elapsed
+
+# ---------------------------------------------------------------------------
+# Step 3b — Build GEMs: full P2 corpus (CPU)
+# ---------------------------------------------------------------------------
+step "3b / Build GEMs — full P2 corpus"
+$PY gem/build_gems.py --all
 elapsed
 
 # ---------------------------------------------------------------------------

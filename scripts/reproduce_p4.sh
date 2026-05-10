@@ -58,7 +58,6 @@ info() { echo "  [INFO] $*"; }
 elapsed() { echo "  [TIME] Elapsed: $(( ($(date +%s) - START_TS) / 60 ))m"; }
 
 START_TS=$(date +%s)
-P4_CONCEPTS="credibility certainty causation temporal_order negation sentiment moral_valence"
 PAPER_OUT="${HOME}/rosetta_data/results/PRH"
 mkdir -p "${PAPER_OUT}"
 
@@ -129,7 +128,6 @@ info "Skips models already extracted."
 $PY extraction/extract.py \
     --prh-cluster A \
     --n-pairs "${N_PAIRS}" \
-    --concepts ${P4_CONCEPTS} \
     ${CACHE_FLAG}
 
 elapsed
@@ -156,7 +154,6 @@ info "Skips models already extracted."
 $PY extraction/extract.py \
     --prh-proxy \
     --n-pairs "${N_PAIRS}" \
-    --concepts ${P4_CONCEPTS} \
     ${CACHE_FLAG}
 
 elapsed
@@ -265,7 +262,6 @@ if [ "${WITH_FRONTIER}" = true ]; then
     $PY extraction/extract.py \
         --prh-frontier \
         --n-pairs "${N_PAIRS}" \
-        --concepts ${P4_CONCEPTS} \
         ${CACHE_FLAG}
 
     elapsed

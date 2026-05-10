@@ -64,7 +64,6 @@ info() { echo "  [INFO] $*"; }
 elapsed() { echo "  [TIME] Elapsed: $(( ($(date +%s) - START_TS) / 60 ))m"; }
 
 START_TS=$(date +%s)
-P3_CONCEPTS="credibility certainty causation temporal_order negation sentiment moral_valence"
 PAPER_OUT="${HOME}/rosetta_data/results/CAZ_Validation"
 mkdir -p "${PAPER_OUT}"
 
@@ -135,7 +134,6 @@ info "Skips if already extracted."
 $PY extraction/extract.py \
     --model openai-community/gpt2-xl \
     --n-pairs "${N_PAIRS}" \
-    --concepts ${P3_CONCEPTS} \
     ${CACHE_FLAG}
 
 elapsed
@@ -145,13 +143,11 @@ if [ "${QUICK}" = true ]; then
 
     $PY gem/ablate.py \
         --model openai-community/gpt2-xl \
-        --n-pairs "${N_PAIRS}" \
-        --concepts ${P3_CONCEPTS}
+        --n-pairs "${N_PAIRS}"
 
     $PY gem/patch.py \
         --model openai-community/gpt2-xl \
         --n-pairs "${N_PAIRS}" \
-        --concepts ${P3_CONCEPTS} \
         ${RD_CACHE_FLAG}
 
     echo
@@ -169,7 +165,6 @@ info "Skips models already extracted."
 $PY extraction/extract.py \
     --p3-corpus \
     --n-pairs "${N_PAIRS}" \
-    --concepts ${P3_CONCEPTS} \
     ${CACHE_FLAG}
 
 elapsed
@@ -182,8 +177,7 @@ info "Tests whether CAZ peak is the functionally active layer."
 
 $PY gem/ablate.py \
     --p3-corpus \
-    --n-pairs "${N_PAIRS}" \
-    --concepts ${P3_CONCEPTS}
+    --n-pairs "${N_PAIRS}"
 
 # ablate.py defaults to keeping cache; no flag needed
 
@@ -198,7 +192,6 @@ info "Triangulates CAZ causal load-bearing via mean-field shift patching."
 $PY gem/patch.py \
     --p3-corpus \
     --n-pairs "${N_PAIRS}" \
-    --concepts ${P3_CONCEPTS} \
     ${RD_CACHE_FLAG}
 
 elapsed
@@ -212,7 +205,6 @@ info "Confirms suppression is direction-specific, not a layer-level artifact."
 $PY gem/ablate_random_direction.py \
     --p3-corpus \
     --n-pairs "${N_PAIRS}" \
-    --concepts ${P3_CONCEPTS} \
     ${RD_CACHE_FLAG}
 
 elapsed
@@ -252,7 +244,6 @@ if [ "${WITH_INSTRUCT}" = true ]; then
     $PY extraction/extract.py \
         --p3-corpus-instruct \
         --n-pairs "${N_PAIRS}" \
-        --concepts ${P3_CONCEPTS} \
         ${CACHE_FLAG}
 
     elapsed
