@@ -1,16 +1,20 @@
 #!/usr/bin/env bash
 # reproduce_p3.sh — Paper 3 (CAZ Validation) end-to-end reproduction
 #
-# Extracts model activations for 26 base models, runs single-layer ablation,
-# activation patching, direction-specificity null, and scored CAZ analysis.
-# Supplementary instruct variants (9 models) are extracted separately and
-# require --with-instruct.
+# Runs CAZ extraction for the P3 corpus (26 base models, 8 families, 7 concepts,
+# N=250 pairs), single-layer ablation, activation patching, direction-specificity
+# null, and scored CAZ analysis.  Optional --with-instruct adds 9 instruct variants
+# (Supplementary §B).
+#
+# Paper stats are derived from whatever data this script produces — run with
+# more models or pairs and the numbers update accordingly.
 #
 # Usage:
 #   ./scripts/reproduce_p3.sh                       # full 26-model corpus
 #   ./scripts/reproduce_p3.sh --quick               # GPT-2-XL only (~45 min)
 #   ./scripts/reproduce_p3.sh --no-clean-cache      # keep HF cache (use on H200)
 #   ./scripts/reproduce_p3.sh --with-instruct       # also run 9 instruct variants
+#   ./scripts/reproduce_p3.sh --gpu-only            # extraction + ablation + patching, skip scored analysis
 #
 # Requirements:
 #   - NVIDIA GPU (≥16GB VRAM; 140GB recommended for full corpus without reloads)
