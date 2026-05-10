@@ -81,6 +81,31 @@ CONCEPTS = [
     "threat_severity", "urgency",
 ]
 
+# Paper 2 (GEM) canonical model set — 16 models, 17 concepts = 272 ablation pairs.
+P2_MODELS: list[str] = [
+    # Pythia scale ladder (EleutherAI)
+    "EleutherAI/pythia-70m",
+    "EleutherAI/pythia-160m",
+    "EleutherAI/pythia-410m",
+    "EleutherAI/pythia-1b",
+    "EleutherAI/pythia-2.8b",
+    "EleutherAI/pythia-6.9b",
+    "EleutherAI/pythia-12b",
+    # GPT-2 family (OpenAI)
+    "openai-community/gpt2",
+    "openai-community/gpt2-large",
+    "openai-community/gpt2-xl",
+    # OPT (Meta)
+    "facebook/opt-6.7b",
+    # Qwen2.5 (Alibaba)
+    "Qwen/Qwen2.5-0.5B",
+    "Qwen/Qwen2.5-1.5B",
+    "Qwen/Qwen2.5-3B",
+    "Qwen/Qwen2.5-7B",
+    # Gemma (Google)
+    "google/gemma-2-9b",
+]
+
 
 # ---------------------------------------------------------------------------
 # Utilities
@@ -805,6 +830,8 @@ def main():
     group.add_argument("--model", type=str, help="Single model ID")
     group.add_argument("--all", action="store_true",
                        help="Run all models with GEM data")
+    group.add_argument("--p2-corpus", action="store_true",
+                       help="Run the canonical Paper 2 model set (16 models × 17 concepts)")
     parser.add_argument("--concepts", nargs="+", default=None,
                         help="Subset of concepts (default: all 7)")
     parser.add_argument("--n-pairs", type=int, default=50,
@@ -834,6 +861,9 @@ def main():
     if args.all:
         models = discover_all_models()
         log.info("Found %d models", len(models))
+    elif args.p2_corpus:
+        models = P2_MODELS
+        log.info("Paper 2 corpus: %d models", len(models))
     else:
         models = [args.model]
 

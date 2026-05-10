@@ -1,20 +1,21 @@
 #!/usr/bin/env bash
-# reproduce_p1.sh — Paper 1 (CAZ Framework) end-to-end reproduction
+# reproduce_p2.sh — Paper 2 (GEM) end-to-end reproduction
 #
-# Extracts model activations, computes per-concept CAZ metrics, runs the
-# depth-matched alignment analysis (P5), then verifies all paper claims
-# with the validation suite.
+# Extracts model activations (Paper 1 corpus is a prerequisite), runs GEM
+# ablation across 16 models × 17 concepts with handoff/peak comparison,
+# then aggregates results.
 #
 # Usage:
-#   ./scripts/reproduce_p1.sh                       # full corpus (~6h on L4 24GB)
-#   ./scripts/reproduce_p1.sh --quick               # GPT-2-XL only, skips P5 (~20 min)
-#   ./scripts/reproduce_p1.sh --no-clean-cache      # keep HF cache between models (use on H200)
+#   ./scripts/reproduce_p2.sh                       # full corpus (16 models)
+#   ./scripts/reproduce_p2.sh --quick               # GPT-2-XL only (~30 min)
+#   ./scripts/reproduce_p2.sh --no-clean-cache      # keep HF cache between models (use on H200)
 #
 # Requirements:
-#   - NVIDIA GPU (≥16GB VRAM; full corpus needs 24GB for the larger models)
+#   - NVIDIA GPU (≥16GB VRAM; 140GB recommended for full corpus without reloads)
 #   - HF_TOKEN env var (or huggingface-cli login) for gated models
 #   - uv (https://docs.astral.sh/uv/) — used to manage the Python environment
 #   - Rosetta_Concept_Pairs available (see concept pairs section in README)
+#   - CAZ extraction already run for the P2 corpus (or run reproduce_p1.sh first)
 
 set -euo pipefail
 
@@ -53,7 +54,6 @@ info() { echo "  [INFO] $*"; }
 elapsed() { echo "  [TIME] Elapsed: $(( ($(date +%s) - START_TS) / 60 ))m"; }
 
 START_TS=$(date +%s)
-P1_CONCEPTS="credibility certainty causation temporal_order negation sentiment moral_valence"
 
 cd "${REPO_ROOT}"
 
@@ -88,7 +88,7 @@ if missing:
 
 import torch
 if not torch.cuda.is_available():
-    print("[ERROR] No CUDA GPU detected. CAZ extraction requires a GPU.", file=sys.stderr)
+    print("[ERROR] No CUDA GPU detected. GEM ablation requires a GPU.", file=sys.stderr)
     sys.exit(1)
 
 vram_gb = torch.cuda.get_device_properties(0).total_memory / 1e9
@@ -114,70 +114,73 @@ info "Environment OK"
 elapsed
 
 # ---------------------------------------------------------------------------
-# Step 1 — CAZ extraction: GPT-2-XL (proof-of-concept model)
+# Step 1 — CAZ extraction: GPT-2-XL (required for GEM ablation)
 # ---------------------------------------------------------------------------
 step "1 / CAZ extraction — GPT-2-XL (N=${N_PAIRS} pairs)"
+info "Skips if already extracted."
 
 $PY extraction/extract.py \
     --model openai-community/gpt2-xl \
     --n-pairs "${N_PAIRS}" \
-    --concepts ${P1_CONCEPTS} \
+    ${CACHE_FLAG}
+
+elapsed
+
+# ---------------------------------------------------------------------------
+# Step 2 — GEM ablation: GPT-2-XL (proof-of-concept)
+# ---------------------------------------------------------------------------
+step "2 / GEM ablation — GPT-2-XL (handoff vs peak, N=${N_PAIRS} pairs)"
+
+$PY gem/ablate_gem.py \
+    --model openai-community/gpt2-xl \
+    --n-pairs "${N_PAIRS}" \
+    --compare-peak \
     ${CACHE_FLAG}
 
 elapsed
 
 if [ "${QUICK}" = true ]; then
-    step "Validation (quick — GPT-2-XL claims only)"
-    $PY -m pytest validation/p1_caz_framework/ -m "not slow" -v \
-        --tb=short \
-        -k "GPT2XL or ScoredDetection"
-    echo
-    info "Quick validation done. Run without --quick to reproduce cross-arch and P5 claims."
+    step "Quick run complete — GPT-2-XL ablation only"
+    info "Run without --quick to reproduce full 16-model corpus."
     elapsed
     exit 0
 fi
 
 # ---------------------------------------------------------------------------
-# Step 2 — CAZ extraction: full paper corpus
+# Step 3 — CAZ extraction: full P2 corpus
 # ---------------------------------------------------------------------------
-step "2 / CAZ extraction — full corpus (~5h)"
+step "3 / CAZ extraction — full P2 corpus (16 models, N=${N_PAIRS} pairs)"
 info "Skips models already extracted."
 
 $PY extraction/extract.py \
     --p1-corpus \
     --n-pairs "${N_PAIRS}" \
-    --concepts ${P1_CONCEPTS} \
     ${CACHE_FLAG}
 
 elapsed
 
 # ---------------------------------------------------------------------------
-# Step 3 — P5: depth-matched alignment
+# Step 4 — GEM ablation: full P2 corpus
 # ---------------------------------------------------------------------------
-step "3 / P5 — depth-matched alignment analysis"
-$PY alignment/p5/p5_propdepth.py
+step "4 / GEM ablation — full P2 corpus (16 models × 17 concepts, N=${N_PAIRS} pairs)"
+
+$PY gem/ablate_gem.py \
+    --p2-corpus \
+    --n-pairs "${N_PAIRS}" \
+    --compare-peak \
+    ${CACHE_FLAG}
+
 elapsed
 
 # ---------------------------------------------------------------------------
-# Step 4 — P5: validation battery (null tests)
+# Step 5 — Aggregate results
 # ---------------------------------------------------------------------------
-step "4 / P5 — validation battery"
-$PY alignment/p5/p5_validation_battery.py
-elapsed
+step "5 / Aggregate GEM results"
 
-# ---------------------------------------------------------------------------
-# Step 5 — Verify all paper claims
-# ---------------------------------------------------------------------------
-step "5 / Validation suite — all Paper 1 claims"
+$PY gem/aggregate_gem_results.py
 
-$PY -m pytest validation/p1_caz_framework/ -v --tb=short
-RESULT=$?
 elapsed
 
 echo
-if [ $RESULT -eq 0 ]; then
-    echo "  All Paper 1 claims verified. Total: $(( ($(date +%s) - START_TS) / 60 ))m"
-else
-    echo "  Some claims failed — see output above. Total: $(( ($(date +%s) - START_TS) / 60 ))m"
-fi
-exit $RESULT
+echo "  Paper 2 reproduction complete. Total: $(( ($(date +%s) - START_TS) / 60 ))m"
+echo "  Results: rosetta_data/results/gem_sweep_aggregate.md"
