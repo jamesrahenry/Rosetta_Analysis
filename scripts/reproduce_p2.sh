@@ -54,6 +54,8 @@ info() { echo "  [INFO] $*"; }
 elapsed() { echo "  [TIME] Elapsed: $(( ($(date +%s) - START_TS) / 60 ))m"; }
 
 START_TS=$(date +%s)
+PAPER_OUT="${HOME}/rosetta_data/results/CAZ_GEM"
+mkdir -p "${PAPER_OUT}"
 
 cd "${REPO_ROOT}"
 
@@ -177,10 +179,10 @@ elapsed
 # ---------------------------------------------------------------------------
 step "5 / Aggregate GEM results"
 
-$PY gem/aggregate_gem_results.py
+$PY gem/aggregate_gem_results.py --out-dir "${PAPER_OUT}"
 
 elapsed
 
 echo
 echo "  Paper 2 reproduction complete. Total: $(( ($(date +%s) - START_TS) / 60 ))m"
-echo "  Results: rosetta_data/results/gem_sweep_aggregate.md"
+echo "  Results: ${PAPER_OUT}/gem_sweep_aggregate.md"

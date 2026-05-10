@@ -54,6 +54,8 @@ elapsed() { echo "  [TIME] Elapsed: $(( ($(date +%s) - START_TS) / 60 ))m"; }
 
 START_TS=$(date +%s)
 P1_CONCEPTS="credibility certainty causation temporal_order negation sentiment moral_valence"
+PAPER_OUT="${HOME}/rosetta_data/results/CAZ_Framework"
+mkdir -p "${PAPER_OUT}"
 
 cd "${REPO_ROOT}"
 
@@ -155,14 +157,14 @@ elapsed
 # Step 3 — P5: depth-matched alignment
 # ---------------------------------------------------------------------------
 step "3 / P5 — depth-matched alignment analysis"
-$PY alignment/p5/p5_propdepth.py
+$PY alignment/p5/p5_propdepth.py --out-dir "${PAPER_OUT}/p5"
 elapsed
 
 # ---------------------------------------------------------------------------
 # Step 4 — P5: validation battery (null tests)
 # ---------------------------------------------------------------------------
 step "4 / P5 — validation battery"
-$PY alignment/p5/p5_validation_battery.py
+$PY alignment/p5/p5_validation_battery.py --out-dir "${PAPER_OUT}/p5"
 elapsed
 
 # ---------------------------------------------------------------------------

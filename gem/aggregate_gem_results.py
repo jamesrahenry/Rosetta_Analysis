@@ -547,6 +547,12 @@ def format_report(records):
 # ── main ────────────────────────────────────────────────────────────────────
 
 def main():
+    import argparse
+    parser = argparse.ArgumentParser(description="Aggregate GEM ablation results")
+    parser.add_argument("--out-dir", type=str, default=None,
+                        help="Output directory for the aggregate report (default: alongside script)")
+    args = parser.parse_args()
+
     records = load_all_results()
     print(f"Loaded {len(records)} GEM ablation comparisons from {len(set(r['model_id'] for r in records))} models\n")
 
@@ -557,11 +563,11 @@ def main():
     report = format_report(records)
     print(report)
 
-    # Save to file
-    os.makedirs(os.path.dirname(OUTPUT_MD), exist_ok=True)
-    with open(OUTPUT_MD, "w") as f:
+    out_path = os.path.join(args.out_dir, "gem_sweep_aggregate.md") if args.out_dir else OUTPUT_MD
+    os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
+    with open(out_path, "w") as f:
         f.write(report)
-    print(f"\n--- Report saved to {OUTPUT_MD} ---")
+    print(f"\n--- Report saved to {out_path} ---")
 
 
 if __name__ == "__main__":

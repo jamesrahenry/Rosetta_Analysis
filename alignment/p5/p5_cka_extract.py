@@ -127,7 +127,8 @@ def model_id_from_dir(model_dir: Path) -> str:
 
 
 def extract_one_model(model_dir: Path, concepts: list[str], limit: int,
-                       batch_size: int, max_length: int, pairs_root: Path):
+                       batch_size: int, max_length: int, pairs_root: Path,
+                       no_clean_cache: bool = False):
     import torch
     from transformers import AutoModel, AutoTokenizer
     from rosetta_tools.extraction import extract_layer_activations
@@ -208,11 +209,12 @@ def extract_one_model(model_dir: Path, concepts: list[str], limit: int,
     gc.collect()
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
-    try:
-        from rosetta_tools.gpu_utils import purge_hf_cache
-        purge_hf_cache(model_id)
-    except Exception as e:
-        log.warning("purge_hf_cache failed for %s: %s", model_id, e)
+    if not no_clean_cache:
+        try:
+            from rosetta_tools.gpu_utils import purge_hf_cache
+            purge_hf_cache(model_id)
+        except Exception as e:
+            log.warning("purge_hf_cache failed for %s: %s", model_id, e)
 
 
 def main():
@@ -229,6 +231,8 @@ def main():
                     help=f"Path to rosetta_data/models (default: {DEFAULT_DATA_ROOT})")
     ap.add_argument("--pairs-root", type=Path, default=DEFAULT_PAIRS_ROOT,
                     help=f"Path to concept pair jsonl files (default: {DEFAULT_PAIRS_ROOT})")
+    ap.add_argument("--no-clean-cache", action="store_true",
+                    help="Keep model weights in HF cache after extraction")
     args = ap.parse_args()
 
     data_root: Path = args.data_root
@@ -260,20 +264,22 @@ def main():
             continue
         try:
             extract_one_model(md, concepts, args.limit,
-                              args.batch_size, args.max_length, pairs_root)
+                              args.batch_size, args.max_length, pairs_root,
+                              no_clean_cache=args.no_clean_cache)
             succeeded += 1
         except Exception as e:
             log.error("FAILED on %s: %s", md.name, e)
             # Purge cache even on failure so a crashed model doesn't fill /tmp.
-            try:
-                import gc, torch
-                from rosetta_tools.gpu_utils import purge_hf_cache
-                gc.collect()
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
-                purge_hf_cache(model_id_from_dir(md))
-            except Exception as pe:
-                log.warning("purge after failure failed for %s: %s", md.name, pe)
+            if not args.no_clean_cache:
+                try:
+                    import gc, torch
+                    from rosetta_tools.gpu_utils import purge_hf_cache
+                    gc.collect()
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                    purge_hf_cache(model_id_from_dir(md))
+                except Exception as pe:
+                    log.warning("purge after failure failed for %s: %s", md.name, pe)
             continue
 
     log.info("All done. %d/%d model(s) processed.", succeeded, len(model_dirs))

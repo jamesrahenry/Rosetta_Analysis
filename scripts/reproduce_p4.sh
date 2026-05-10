@@ -1,20 +1,19 @@
 #!/usr/bin/env bash
-# reproduce_p3.sh — Paper 3 (CAZ Validation) end-to-end reproduction
+# reproduce_p4.sh — Paper 4 (PRH / Concept-Selective Convergence) end-to-end reproduction
 #
-# Extracts model activations for 26 base models, runs single-layer ablation,
-# activation patching, direction-specificity null, and scored CAZ analysis.
-# Supplementary instruct variants (9 models) are extracted separately and
-# require --with-instruct.
+# Extracts concept vectors for the PRH proxy corpus (19 models across 5 same-dim
+# clusters), runs Procrustes alignment and all nulls, then runs the P5
+# proportional-depth analysis and validation battery.
 #
 # Usage:
-#   ./scripts/reproduce_p3.sh                       # full 26-model corpus
-#   ./scripts/reproduce_p3.sh --quick               # GPT-2-XL only (~45 min)
-#   ./scripts/reproduce_p3.sh --no-clean-cache      # keep HF cache (use on H200)
-#   ./scripts/reproduce_p3.sh --with-instruct       # also run 9 instruct variants
+#   ./scripts/reproduce_p4.sh                       # full PRH proxy corpus
+#   ./scripts/reproduce_p4.sh --quick               # Cluster A only (4 models, ~30 min)
+#   ./scripts/reproduce_p4.sh --no-clean-cache      # keep HF cache (use on H200)
+#   ./scripts/reproduce_p4.sh --with-frontier       # also extract Cluster F (H200 only)
 #
 # Requirements:
-#   - NVIDIA GPU (≥16GB VRAM; 140GB recommended for full corpus without reloads)
-#   - HF_TOKEN env var for gated models (Llama-3.2, Gemma-2, Mistral)
+#   - NVIDIA GPU (≥16GB VRAM; H200 recommended for Cluster E and frontier)
+#   - HF_TOKEN env var for gated models (Llama-3.1-8B, Mistral, Gemma-2)
 #   - uv (https://docs.astral.sh/uv/) — used to manage the Python environment
 #   - Rosetta_Concept_Pairs available (see concept pairs section in README)
 
@@ -25,7 +24,7 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 N_PAIRS=250
 QUICK=false
 NO_CLEAN_CACHE=false
-WITH_INSTRUCT=false
+WITH_FRONTIER=false
 
 # ---------------------------------------------------------------------------
 # Parse arguments
@@ -34,7 +33,7 @@ for arg in "$@"; do
     case $arg in
         --quick)          QUICK=true ;;
         --no-clean-cache) NO_CLEAN_CACHE=true ;;
-        --with-instruct)  WITH_INSTRUCT=true ;;
+        --with-frontier)  WITH_FRONTIER=true ;;
         --help|-h)
             sed -n '2,20p' "$0" | sed 's/^# \?//'
             exit 0
@@ -49,11 +48,6 @@ done
 CACHE_FLAG=""
 [ "$NO_CLEAN_CACHE" = true ] && CACHE_FLAG="--no-clean-cache"
 
-# ablate.py defaults to keeping cache (--clean-cache opts in); no flag needed.
-# ablate_random_direction.py and patch.py default to purging; pass --no-clean-cache.
-RD_CACHE_FLAG=""
-[ "$NO_CLEAN_CACHE" = true ] && RD_CACHE_FLAG="--no-clean-cache"
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -62,8 +56,8 @@ info() { echo "  [INFO] $*"; }
 elapsed() { echo "  [TIME] Elapsed: $(( ($(date +%s) - START_TS) / 60 ))m"; }
 
 START_TS=$(date +%s)
-P3_CONCEPTS="credibility certainty causation temporal_order negation sentiment moral_valence"
-PAPER_OUT="${HOME}/rosetta_data/results/CAZ_Validation"
+P4_CONCEPTS="credibility certainty causation temporal_order negation sentiment moral_valence"
+PAPER_OUT="${HOME}/rosetta_data/results/PRH"
 mkdir -p "${PAPER_OUT}"
 
 cd "${REPO_ROOT}"
@@ -105,7 +99,7 @@ if not torch.cuda.is_available():
 vram_gb = torch.cuda.get_device_properties(0).total_memory / 1e9
 print(f"  GPU: {torch.cuda.get_device_name(0)} ({vram_gb:.0f}GB VRAM)")
 if vram_gb < 15:
-    print(f"  [WARNING] Only {vram_gb:.0f}GB VRAM — some models may OOM. --quick recommended.")
+    print(f"  [WARNING] Only {vram_gb:.0f}GB VRAM — some models may OOM.")
 PYCHECK
 
 $PY - <<'PYCHECK'
@@ -125,132 +119,160 @@ info "Environment OK"
 elapsed
 
 # ---------------------------------------------------------------------------
-# Step 1 — CAZ extraction: GPT-2-XL (proof-of-concept model)
+# Step 1 — CAZ extraction: Cluster A proof-of-concept (smallest same-dim group)
 # ---------------------------------------------------------------------------
-step "1 / CAZ extraction — GPT-2-XL (N=${N_PAIRS} pairs)"
-info "Skips if already extracted."
+step "1 / CAZ extraction — Cluster A (4 models, 768-dim, N=${N_PAIRS} pairs)"
+info "Skips models already extracted."
 
 $PY extraction/extract.py \
-    --model openai-community/gpt2-xl \
+    --prh-cluster A \
     --n-pairs "${N_PAIRS}" \
-    --concepts ${P3_CONCEPTS} \
+    --concepts ${P4_CONCEPTS} \
     ${CACHE_FLAG}
 
 elapsed
 
 if [ "${QUICK}" = true ]; then
-    step "Quick: ablation + patching — GPT-2-XL only"
+    step "Quick: Procrustes alignment — Cluster A only"
 
-    $PY gem/ablate.py \
-        --model openai-community/gpt2-xl \
-        --n-pairs "${N_PAIRS}" \
-        --concepts ${P3_CONCEPTS}
-
-    $PY gem/patch.py \
-        --model openai-community/gpt2-xl \
-        --n-pairs "${N_PAIRS}" \
-        --concepts ${P3_CONCEPTS} \
-        ${RD_CACHE_FLAG}
+    $PY alignment/align.py --all --same-dim-only \
+        --out results/prh_main_clusterA.csv
 
     echo
-    info "Quick run complete — GPT-2-XL only. Run without --quick for full 26-model corpus."
+    info "Quick run complete — Cluster A only."
+    info "Run without --quick for full 19-model PRH proxy corpus."
     elapsed
     exit 0
 fi
 
 # ---------------------------------------------------------------------------
-# Step 2 — CAZ extraction: full P3 base corpus (26 models)
+# Step 2 — CAZ extraction: full PRH proxy corpus (19 models, all clusters)
 # ---------------------------------------------------------------------------
-step "2 / CAZ extraction — full P3 corpus (26 models, N=${N_PAIRS} pairs)"
+step "2 / CAZ extraction — full PRH proxy corpus (19 models, N=${N_PAIRS} pairs)"
 info "Skips models already extracted."
 
 $PY extraction/extract.py \
-    --p3-corpus \
+    --prh-proxy \
     --n-pairs "${N_PAIRS}" \
-    --concepts ${P3_CONCEPTS} \
+    --concepts ${P4_CONCEPTS} \
     ${CACHE_FLAG}
 
 elapsed
 
 # ---------------------------------------------------------------------------
-# Step 3 — Single-layer ablation sweep (CAZ Prediction 1)
+# Step 3 — Random calibration null (GPU — re-extracts random activations)
 # ---------------------------------------------------------------------------
-step "3 / Single-layer ablation sweep — P3 corpus (26 models)"
-info "Tests whether CAZ peak is the functionally active layer."
+step "3 / Random calibration null — same-dim pairs"
+info "Tests whether generic rotation explains PRH alignment (~8× SNR expected)."
 
-$PY gem/ablate.py \
-    --p3-corpus \
-    --n-pairs "${N_PAIRS}" \
-    --concepts ${P3_CONCEPTS}
-
-# ablate.py defaults to keeping cache; no flag needed
+$PY alignment/align_random_calib.py \
+    --out "${PAPER_OUT}/prh_random_calib_null.json" \
+    ${CACHE_FLAG}
 
 elapsed
 
 # ---------------------------------------------------------------------------
-# Step 4 — Activation patching (causal validation)
+# Step 4 — P5 CKA extraction (GPU — requires model load)
 # ---------------------------------------------------------------------------
-step "4 / Activation patching — P3 corpus (26 models)"
-info "Triangulates CAZ causal load-bearing via mean-field shift patching."
+step "4 / P5 CKA extraction — PRH proxy corpus"
+info "Extracts adjacent-layer CKA at proportional depths {0.3, 0.5, 0.7}."
 
-$PY gem/patch.py \
-    --p3-corpus \
-    --n-pairs "${N_PAIRS}" \
-    --concepts ${P3_CONCEPTS} \
-    ${RD_CACHE_FLAG}
+$PY alignment/p5/p5_cka_extract.py ${CACHE_FLAG}
 
 elapsed
 
 # ---------------------------------------------------------------------------
-# Step 5 — Direction-specificity null (§6.8)
+# Step 5 — Procrustes alignment: primary result (CPU)
 # ---------------------------------------------------------------------------
-step "5 / Random-direction null — P3 corpus (26 models)"
-info "Confirms suppression is direction-specific, not a layer-level artifact."
+step "5 / Procrustes alignment — primary result (same-dim-only)"
+info "Expected: mean aligned cosine ~0.98, raw ~0.001 (~300× SNR)."
 
-$PY gem/ablate_random_direction.py \
-    --p3-corpus \
-    --n-pairs "${N_PAIRS}" \
-    --concepts ${P3_CONCEPTS} \
-    ${RD_CACHE_FLAG}
+$PY alignment/align.py --all --same-dim-only \
+    --out "${PAPER_OUT}/prh_main.csv"
 
 elapsed
 
 # ---------------------------------------------------------------------------
-# Step 6 — Scored CAZ analysis (CPU — no GPU required)
+# Step 6 — Alignment nulls (CPU)
 # ---------------------------------------------------------------------------
-step "6 / Scored CAZ analysis — all extracted models"
-info "Runs scored detection (0.5% prominence floor), produces per-model profiles."
+step "6a / Permuted-label null (100 trials per pair)"
 
-$PY caz/analyze_scored.py --output "${PAPER_OUT}/scored_analysis.md" --csv
+$PY alignment/align.py --all --same-dim-only \
+    --permute-labels 100
+
+elapsed
+
+step "6b / Cross-concept rotation transfer (universality test)"
+info "Expected: universality ratio ~0.194 (concept-selective, not universal)."
+
+$PY alignment/align.py --all --same-dim-only \
+    --cross-concept-transfer
+
+elapsed
+
+step "6c / Split-calibration artifact test (20 splits)"
+info "Confirms R generalises to held-out DOM vectors."
+
+$PY alignment/align.py --all --same-dim-only \
+    --split-calibration --n-splits 20
 
 elapsed
 
 # ---------------------------------------------------------------------------
-# Step 7 — Cross-architecture analysis (CPU — no GPU required)
+# Step 7 — P5 proportional-depth analysis (CPU)
 # ---------------------------------------------------------------------------
-step "7 / Cross-architecture concept ordering analysis"
+step "7 / P5 proportional-depth alignment analysis"
+info "Expected: matched 0.331 vs mismatched 0.198, Δ=+0.134, 98/98, p=1.2×10⁻³⁰."
 
-$PY caz/analyze.py --all
+$PY alignment/p5/p5_propdepth.py --out-dir "${PAPER_OUT}/p5"
 
 elapsed
 
 # ---------------------------------------------------------------------------
-# Optional: instruct variants (Supplementary §B)
+# Step 8 — P5 CKA analysis (CPU)
 # ---------------------------------------------------------------------------
-if [ "${WITH_INSTRUCT}" = true ]; then
-    step "8 / CAZ extraction — instruct variants (9 models, Supplementary §B)"
+step "8 / P5 CKA analysis"
+
+$PY alignment/p5/p5_cka_analyze.py --out-dir "${PAPER_OUT}/p5"
+
+elapsed
+
+# ---------------------------------------------------------------------------
+# Step 9 — P5 validation battery (CPU — nulls for the P5 result)
+# ---------------------------------------------------------------------------
+step "9 / P5 validation battery (random-input, structure-scramble, procedure-off nulls)"
+
+$PY alignment/p5/p5_validation_battery.py --out-dir "${PAPER_OUT}/p5"
+
+elapsed
+
+# ---------------------------------------------------------------------------
+# Optional: Cluster F frontier models (H200 only)
+# ---------------------------------------------------------------------------
+if [ "${WITH_FRONTIER}" = true ]; then
+    step "10 / CAZ extraction — Cluster F frontier (falcon-40b, Llama-70B, Qwen-72B)"
+    info "H200 only — requires ~140GB VRAM for 70B models."
 
     $PY extraction/extract.py \
-        --p3-corpus-instruct \
+        --prh-frontier \
         --n-pairs "${N_PAIRS}" \
-        --concepts ${P3_CONCEPTS} \
+        --concepts ${P4_CONCEPTS} \
         ${CACHE_FLAG}
+
+    elapsed
+
+    step "11 / Procrustes alignment — including frontier models"
+
+    $PY alignment/align.py --all --same-dim-only \
+        --out "${PAPER_OUT}/prh_with_frontier.csv"
 
     elapsed
 fi
 
 echo
-echo "  Paper 3 reproduction complete. Total: $(( ($(date +%s) - START_TS) / 60 ))m"
-echo "  Scored analysis:     ${PAPER_OUT}/scored_analysis.md"
-echo "  Ablation results:    rosetta_data/models/<model>/ablation_<concept>.json"
-echo "  Patching results:    rosetta_data/models/<model>/patch_<concept>.json"
+echo "  Paper 4 reproduction complete. Total: $(( ($(date +%s) - START_TS) / 60 ))m"
+echo "  Primary result:       ${PAPER_OUT}/prh_main.csv"
+echo "  Permuted-label null:  rosetta_data/results/null_permuted_<concept>.csv"
+echo "  Cross-concept:        rosetta_data/results/cross_concept_transfer.csv"
+echo "  Random calib null:    ${PAPER_OUT}/prh_random_calib_null.json"
+echo "  P5 depth result:      ${PAPER_OUT}/p5/p5_propdepth_samedim_results.json"

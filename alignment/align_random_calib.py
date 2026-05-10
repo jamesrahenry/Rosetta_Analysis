@@ -332,6 +332,7 @@ def extract_random_activations(
     device: str = "cuda",
     batch_size: int = 8,
     seed: int = 42,
+    no_clean_cache: bool = False,
 ) -> dict[str, np.ndarray]:
     """Extract activations at concept peak layers from random corpus sentences.
 
@@ -397,17 +398,18 @@ def extract_random_activations(
         gc.collect()
         if device == "cuda":
             torch.cuda.empty_cache()
-        try:
-            from rosetta_tools.gpu_utils import purge_hf_cache
-            purge_hf_cache(model_id)
-        except Exception as pe:
-            log.warning("  purge_hf_cache failed for %s: %s", model_id, pe)
+        if not no_clean_cache:
+            try:
+                from rosetta_tools.gpu_utils import purge_hf_cache
+                purge_hf_cache(model_id)
+            except Exception as pe:
+                log.warning("  purge_hf_cache failed for %s: %s", model_id, pe)
 
     log.info("  Extracted random calibration for %d concepts", len(concept_activations))
     return concept_activations
 
 
-def run_random_calib_null(n_random: int = 200, seed: int = 42) -> dict:
+def run_random_calib_null(n_random: int = 200, seed: int = 42, no_clean_cache: bool = False) -> dict:
     """Main experiment: fit R on random-text activations, test concept DOM alignment."""
     device = get_device()
 
@@ -457,6 +459,7 @@ def run_random_calib_null(n_random: int = 200, seed: int = 42) -> dict:
             n_random=n_random,
             device=device,
             seed=seed,
+            no_clean_cache=no_clean_cache,
         )
         if acts:
             random_acts[slug] = acts
@@ -546,4 +549,25 @@ def run_random_calib_null(n_random: int = 200, seed: int = 42) -> dict:
 
 
 if __name__ == "__main__":
-    run_random_calib_null(n_random=200, seed=42)
+    import argparse
+    from pathlib import Path as _Path
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--n-random", type=int, default=200)
+    ap.add_argument("--seed", type=int, default=42)
+    ap.add_argument("--no-clean-cache", action="store_true",
+                    help="Keep model weights in HF cache after extraction")
+    ap.add_argument("--out", type=str, default=None,
+                    help="Output JSON path (default: rosetta_data/results/prh_random_calib_null.json)")
+    args = ap.parse_args()
+    if args.out:
+        import json as _json
+        result = run_random_calib_null(n_random=args.n_random, seed=args.seed,
+                                       no_clean_cache=args.no_clean_cache)
+        out_p = _Path(args.out)
+        out_p.parent.mkdir(parents=True, exist_ok=True)
+        with out_p.open("w") as _f:
+            _json.dump(result, _f, indent=2)
+        log.info("Saved → %s", out_p)
+    else:
+        run_random_calib_null(n_random=args.n_random, seed=args.seed,
+                              no_clean_cache=args.no_clean_cache)
