@@ -19,6 +19,7 @@ import math
 
 from rosetta_tools.paths import ROSETTA_MODELS
 RESULTS_DIR = str(ROSETTA_MODELS)
+_FILTER_WIDTH = 3  # overridden by --width arg; None = accept all
 OUTPUT_MD = os.path.join(os.path.dirname(__file__), "..", "results", "gem_sweep_aggregate.md")
 
 # Parameter counts (billions)
@@ -139,8 +140,7 @@ def load_all_results():
             d = json.load(fh)
         comp = d.get("comparison", {})
         width = comp.get("width")
-        # Only use width=3 results
-        if width is not None and width != 3:
+        if width is not None and _FILTER_WIDTH is not None and width != _FILTER_WIDTH:
             continue
         rec = {
             "model_id": d["model_id"],
@@ -418,7 +418,8 @@ def format_report(records):
     w(f"")
     w(f"*Generated: {now}*")
     w(f"")
-    w(f"34 models, 7 concepts, {len(records)} comparisons (width=3)")
+    width_label = f"width={_FILTER_WIDTH}" if _FILTER_WIDTH is not None else "all widths"
+    w(f"{len(set(r['model_id'] for r in records))} models, {len(set(r['concept'] for r in records))} concepts, {len(records)} comparisons ({width_label})")
     w(f"")
 
     # ── G. Overall (lead with the headline) ─────────────────────────────
@@ -551,7 +552,13 @@ def main():
     parser = argparse.ArgumentParser(description="Aggregate GEM ablation results")
     parser.add_argument("--out-dir", type=str, default=None,
                         help="Output directory for the aggregate report (default: alongside script)")
+    parser.add_argument("--width", type=int, default=None,
+                        help="Filter to ablations with this node width (default: 3; pass 0 for all widths)")
     args = parser.parse_args()
+
+    global _FILTER_WIDTH
+    if args.width is not None:
+        _FILTER_WIDTH = args.width if args.width != 0 else None
 
     records = load_all_results()
     print(f"Loaded {len(records)} GEM ablation comparisons from {len(set(r['model_id'] for r in records))} models\n")
