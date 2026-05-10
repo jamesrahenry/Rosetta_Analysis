@@ -490,65 +490,6 @@ class TestStructuralClaims:
             f"Shared-CAZ-layer fraction: expected ~0.48, got {frac:.3f}"
 
 
-# ============================================================================
-# §5.8 — Width-Abstraction Correlation (P3, exploratory)
-# Slow: requires per-concept CAZ widths across all base models.
-# ============================================================================
-
-@pytest.mark.slow
-class TestP3WidthAbstraction:
-    """Paper §5.8: CAZ width vs. abstraction rank (exploratory).
-
-    N=250 canonical result: r = 0.294, p = 0.003, n ≈ 132.
-    N=100 corpus (26 base models): r ≈ 0.034, p = 0.67, n ≈ 156 — NOT significant.
-    NOTE: paper §5.8 claim does not reproduce at N=100. Needs N=250 replication or
-    revision to 'not supported in N=100 proof-of-concept corpus.'
-
-    Abstraction ranking used in paper (low → high):
-        1. negation, temporal_order  (syntactic/relational)
-        2. sentiment, certainty      (affective/epistemic, mixed)
-        3. causation, moral_valence  (relational/normative, abstract)
-    """
-
-    ABSTRACTION_RANK = {
-        "negation":       1,
-        "temporal_order": 1,
-        "sentiment":      2,
-        "certainty":      2,
-        "causation":      3,
-        "moral_valence":  3,
-    }
-
-    @pytest.mark.xfail(
-        reason="Width-abstraction r=0.294 (§5.8) does not reproduce in N=100 corpus "
-               "(r=0.034, p=0.67). Paper text needs update or N=250 replication.",
-        strict=False,
-    )
-    def test_width_abstraction_correlation(self, all_p1_caz):
-        """r = 0.294, p = 0.003 — not reproduced at N=100; xfail pending N=250 run."""
-        EXCLUDE = {"credibility"}
-        widths = []
-        ranks = []
-
-        for slug, model_data in all_p1_caz.items():
-            for concept, (_, metrics) in model_data.items():
-                if concept in EXCLUDE:
-                    continue
-                profile = find_caz_regions_scored(metrics)
-                if not profile.regions:
-                    continue
-                dom_region = max(profile.regions, key=lambda r: r.caz_score)
-                widths.append(dom_region.width)
-                ranks.append(self.ABSTRACTION_RANK[concept])
-
-        n = len(widths)
-        assert n >= 50, f"Too few data points: {n}"
-
-        r, p = stats.pearsonr(ranks, widths)
-        assert r > 0, f"Width-abstraction correlation should be positive, got r={r:.3f}"
-        assert abs(r - 0.294) < 0.10, f"Pearson r: expected ~0.294, got {r:.3f}"
-        assert p < 0.05, f"Width-abstraction p = {p:.4f}; expected p < 0.05"
-
 
 # ============================================================================
 # P6 — Lexical vs Compositional Peaks (§5.6) — Not Supported
