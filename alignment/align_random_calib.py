@@ -558,7 +558,12 @@ if __name__ == "__main__":
                     help="Keep model weights in HF cache after extraction")
     ap.add_argument("--out", type=str, default=None,
                     help="Output JSON path (default: rosetta_data/results/prh_random_calib_null.json)")
+    ap.add_argument("--force", action="store_true", help="Re-run even if output already exists")
     args = ap.parse_args()
+    out_p = _Path(args.out) if args.out else OUT_PATH
+    if out_p.exists() and not args.force:
+        log.info("Skip: %s already exists (--force to re-run)", out_p)
+        import sys; sys.exit(0)
     if args.out:
         import json as _json
         result = run_random_calib_null(n_random=args.n_random, seed=args.seed,
