@@ -293,10 +293,13 @@ def run_model(model_id: str, concepts: list[str], args) -> None:
         log.warning("Skipping %s: model VRAM %.0f GB > %.0f GB available (%.0f GB × %d GPUs)",
                     model_id, model_vram, vram_cap * 0.9, vram_free, max(n_gpus, 1))
         return
-    device_map = "auto" if (model_vram > 20.0 and n_gpus > 1) else None
+    # Use device_map='auto' when model won't comfortably fit on one GPU with headroom for
+    # seed-pass activations (~4 GB). Catches 9B-class models on 22 GB GPUs.
+    single_gpu_limit = vram_free - 4.0
+    device_map = "auto" if (model_vram > single_gpu_limit and n_gpus > 1) else None
     if device_map:
-        log.info("Large model (%.0f GB bf16): device_map='auto' across %d GPUs",
-                 model_vram, n_gpus)
+        log.info("Large model (%.0f GB bf16 > %.0f GB single-GPU limit): device_map='auto' across %d GPUs",
+                 model_vram, single_gpu_limit, n_gpus)
     try:
         from rosetta_tools.gpu_utils import load_causal_lm
         model, tokenizer = load_causal_lm(model_id, device, dtype, device_map=device_map)
