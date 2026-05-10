@@ -24,6 +24,7 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 N_PAIRS=250
 QUICK=false
 NO_CLEAN_CACHE=false
+GPU_ONLY=false
 
 # ---------------------------------------------------------------------------
 # Parse arguments
@@ -32,6 +33,7 @@ for arg in "$@"; do
     case $arg in
         --quick)          QUICK=true ;;
         --no-clean-cache) NO_CLEAN_CACHE=true ;;
+        --gpu-only)       GPU_ONLY=true ;;
         --help|-h)
             sed -n '2,20p' "$0" | sed 's/^# \?//'
             exit 0
@@ -173,6 +175,13 @@ $PY gem/ablate_gem.py \
     ${CACHE_FLAG}
 
 elapsed
+
+if [ "${GPU_ONLY}" = true ]; then
+    echo
+    echo "  --gpu-only: GPU extraction and ablation complete. Run without --gpu-only for aggregate."
+    echo "  Total: $(( ($(date +%s) - START_TS) / 60 ))m"
+    exit 0
+fi
 
 # ---------------------------------------------------------------------------
 # Step 5 — Aggregate results
