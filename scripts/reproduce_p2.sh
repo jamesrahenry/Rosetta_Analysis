@@ -1,21 +1,24 @@
 #!/usr/bin/env bash
 # reproduce_p2.sh — Paper 2 (GEM) end-to-end reproduction
 #
-# Extracts model activations (Paper 1 corpus is a prerequisite), runs GEM
-# ablation across 16 models × 17 concepts with handoff/peak comparison,
-# then aggregates results.
+# Runs CAZ extraction for the P2 corpus, builds GEMs, runs handoff-vs-peak
+# ablation across all model × concept pairs, then aggregates results.
+#
+# P2 corpus: 16 base models (Appendix A), 17 concepts, N=250 pairs.
+# Paper stats are derived from whatever data this script produces — run with
+# more models or pairs and the numbers update accordingly.
 #
 # Usage:
-#   ./scripts/reproduce_p2.sh                       # full corpus (16 models)
+#   ./scripts/reproduce_p2.sh                       # full corpus
 #   ./scripts/reproduce_p2.sh --quick               # GPT-2-XL only (~30 min)
 #   ./scripts/reproduce_p2.sh --no-clean-cache      # keep HF cache between models (use on H200)
+#   ./scripts/reproduce_p2.sh --gpu-only            # extraction + ablation, skip aggregate
 #
 # Requirements:
 #   - NVIDIA GPU (≥16GB VRAM; 140GB recommended for full corpus without reloads)
 #   - HF_TOKEN env var (or huggingface-cli login) for gated models
 #   - uv (https://docs.astral.sh/uv/) — used to manage the Python environment
 #   - Rosetta_Concept_Pairs available (see concept pairs section in README)
-#   - CAZ extraction already run for the P2 corpus (or run reproduce_p1.sh first)
 
 set -euo pipefail
 
@@ -182,7 +185,7 @@ elapsed
 
 if [ "${QUICK}" = true ]; then
     step "Quick run complete — GPT-2-XL ablation only"
-    info "Run without --quick to reproduce full 16-model corpus."
+    info "Run without --quick to run the full P2 corpus."
     elapsed
     exit 0
 fi
