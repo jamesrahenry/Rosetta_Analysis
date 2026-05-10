@@ -1,9 +1,14 @@
 #!/usr/bin/env bash
-# reproduce_p4.sh — Paper 4 (PRH / Concept-Selective Convergence) end-to-end reproduction
+# reproduce_p4.sh — Paper 4 (PRH / Concept-Selective Convergence) GPU extraction
 #
-# Extracts concept vectors for the PRH proxy corpus (clusters A–E+G + scale ladder),
-# runs Procrustes alignment and all nulls, then runs the P5 proportional-depth
-# analysis and validation battery.
+# Extracts concept vectors for the PRH proxy corpus (clusters A–E + scale ladder)
+# and runs the P5 CKA extraction.  Procrustes alignment, nulls, and P5 analysis
+# are CPU-bound and run separately on the dev machine via reproduce_p4_cpu.sh.
+#
+# Typical H200 workflow:
+#   1. ./scripts/reproduce_p4.sh --gpu-only --no-clean-cache  (H200)
+#   2. bash rosetta_tools/bin/sync_results.sh                 (dev machine — pull results)
+#   3. ./scripts/reproduce_p4_cpu.sh                          (dev machine — analysis)
 #
 # Corpus: defined in rosetta_tools models.yaml by cluster.  Current clusters:
 #   A 768-dim  (4 models), B 2048-dim (5), C 4096-dim (6), D 3584-dim (2),
@@ -14,10 +19,10 @@
 # grows as models.yaml is updated and the numbers update accordingly.
 #
 # Usage:
-#   ./scripts/reproduce_p4.sh                       # full PRH proxy corpus
+#   ./scripts/reproduce_p4.sh                       # full run (GPU + CPU, single machine)
 #   ./scripts/reproduce_p4.sh --quick               # Cluster A only (4 models, ~30 min)
 #   ./scripts/reproduce_p4.sh --no-clean-cache      # keep HF cache (use on H200)
-#   ./scripts/reproduce_p4.sh --gpu-only            # extraction + CKA, skip alignment analysis
+#   ./scripts/reproduce_p4.sh --gpu-only            # extraction + CKA only (H200 workflow)
 #   ./scripts/reproduce_p4.sh --with-frontier       # also extract Cluster F (H200 only)
 #
 # Requirements:
@@ -268,7 +273,8 @@ if prov_path.exists():
 PYPROV
     echo
     echo "  --gpu-only: extraction + random calib + P5 CKA complete. ${END_UTC} (${TOTAL_MIN}m)"
-    echo "  Run without --gpu-only for Procrustes, alignment nulls, and P5 analysis."
+    echo "  Sync results to dev machine, then run:"
+    echo "    ./scripts/reproduce_p4_cpu.sh        # Procrustes + nulls + P5 analysis (CPU)"
     exit 0
 fi
 
