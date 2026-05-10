@@ -264,7 +264,7 @@ fi
 # ---------------------------------------------------------------------------
 step "5 / Aggregate GEM results"
 
-$PY gem/aggregate_gem_results.py --out-dir "${PAPER_OUT}"
+$PY gem/aggregate_gem_results.py --p2-corpus --out-dir "${PAPER_OUT}"
 
 elapsed
 

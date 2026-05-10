@@ -554,6 +554,8 @@ def main():
                         help="Output directory for the aggregate report (default: alongside script)")
     parser.add_argument("--width", type=int, default=None,
                         help="Filter to ablations with this node width (default: 3; pass 0 for all widths)")
+    parser.add_argument("--p2-corpus", action="store_true",
+                        help="Filter to the canonical P2 paper corpus (16 models) from ablate_gem.P2_MODELS")
     args = parser.parse_args()
 
     global _FILTER_WIDTH
@@ -561,6 +563,13 @@ def main():
         _FILTER_WIDTH = args.width if args.width != 0 else None
 
     records = load_all_results()
+
+    if args.p2_corpus:
+        from gem.ablate_gem import P2_MODELS
+        p2_set = set(P2_MODELS)
+        before = len(records)
+        records = [r for r in records if r["model_id"] in p2_set]
+        print(f"  --p2-corpus: filtered {before} → {len(records)} comparisons ({len(set(r['model_id'] for r in records))} models)")
     print(f"Loaded {len(records)} GEM ablation comparisons from {len(set(r['model_id'] for r in records))} models\n")
 
     if not records:

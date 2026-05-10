@@ -566,8 +566,19 @@ def run_model(
         return False
 
     # Skip model load entirely if every concept's ablation result already exists
-    already_done = [c for c in available
-                    if (extraction_dir / f"ablation_gem_{c}.json").exists()]
+    # When --compare-peak is set, also require the comparison key to be present.
+    def _result_complete(concept: str) -> bool:
+        p = extraction_dir / f"ablation_gem_{concept}.json"
+        if not p.exists():
+            return False
+        if not args.compare_peak:
+            return True
+        try:
+            return "comparison" in json.loads(p.read_text())
+        except (json.JSONDecodeError, OSError):
+            return False
+
+    already_done = [c for c in available if _result_complete(c)]
     if len(already_done) == len(available):
         log.info("=== GEM ablation: %s — all %d concepts already done, skipping ===",
                  model_id, len(available))
