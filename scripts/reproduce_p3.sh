@@ -21,6 +21,7 @@
 #   - HF_TOKEN env var for gated models (Llama-3.2, Gemma-2, Mistral)
 #   - uv (https://docs.astral.sh/uv/) — used to manage the Python environment
 #   - Rosetta_Concept_Pairs available (see concept pairs section in README)
+#   - Rosetta_Feature_Library at ~/Rosetta_Feature_Library (for Gemma Scope xval step)
 
 set -euo pipefail
 
@@ -243,6 +244,18 @@ $PY gem/ablate_random_direction.py \
 
 elapsed
 
+# ---------------------------------------------------------------------------
+# Step 5b — Gemma Scope SAE cross-validation (GPU — loads gemma-2-2b)
+# ---------------------------------------------------------------------------
+step "5b / Gemma Scope SAE cross-validation"
+info "Validates CAZ layer assignments against independent SAE feature activations."
+info "Requires Rosetta_Feature_Library at ~/Rosetta_Feature_Library or repo root."
+
+$PY caz/gemma_scope_xval.py \
+    --out "${PAPER_OUT}/gemma_scope_xval"
+
+elapsed
+
 if [ "${GPU_ONLY}" = true ]; then
     END_UTC=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
     TOTAL_MIN=$(( ($(date +%s) - START_TS) / 60 ))
@@ -356,4 +369,5 @@ echo "  Paper 3 reproduction complete. Completed: ${END_UTC} (${TOTAL_MIN}m)"
 echo "  Scored analysis:     ${PAPER_OUT}/scored_analysis.md"
 echo "  Ablation results:    rosetta_data/models/<model>/ablation_<concept>.json"
 echo "  Patching results:    rosetta_data/models/<model>/patch_<concept>.json"
+echo "  Gemma Scope xval:    ${PAPER_OUT}/gemma_scope_xval/summary.json"
 echo "  Provenance:          ${PAPER_OUT}/provenance.json"
