@@ -204,6 +204,22 @@ def extract_layer_wise_metrics(model, tokenizer, pos_texts, neg_texts, device, b
     pos_by_layer = pos_by_layer[1:]
     neg_by_layer = neg_by_layer[1:]
 
+    # Some architectures (e.g. OPT-350m: word_embed_proj_dim=512, hidden_size=1024)
+    # have layers with mismatched hidden dims that survive the [1:] skip.
+    # Keep only layers at the modal dimension so np.stack doesn't crash.
+    if pos_by_layer:
+        from collections import Counter
+        dims = [p.shape[1] for p in pos_by_layer]
+        modal_dim = Counter(dims).most_common(1)[0][0]
+        if len(set(dims)) > 1:
+            log.warning(
+                "Heterogeneous hidden dims across layers %s — keeping %d-dim layers only",
+                dict(Counter(dims)), modal_dim,
+            )
+            keep = [p.shape[1] == modal_dim for p in pos_by_layer]
+            pos_by_layer = [p for p, ok in zip(pos_by_layer, keep) if ok]
+            neg_by_layer = [n for n, ok in zip(neg_by_layer, keep) if ok]
+
     n_layers = len(pos_by_layer)
     separations, coherences, dom_vectors, raw_distances = [], [], [], []
 
