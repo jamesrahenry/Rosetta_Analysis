@@ -389,7 +389,8 @@ def run_model(model_id: str, concepts: list[str], args) -> None:
 
     from rosetta_tools.models import vram_gb as _registry_vram
     model_vram = _registry_vram(model_id)
-    single_gpu_vram = 22.0
+    single_gpu_vram = (torch.cuda.get_device_properties(0).total_memory / 1e9 - 8.0
+                       if torch.cuda.is_available() else 22.0)
     explicit_8bit = args.load_in_8bit
     auto_8bit = (not explicit_8bit) and model_vram > single_gpu_vram
     use_8bit = explicit_8bit or auto_8bit

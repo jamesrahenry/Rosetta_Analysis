@@ -620,7 +620,9 @@ def run_model(
         tokenizer.pad_token = tokenizer.eos_token
     n_gpus = torch.cuda.device_count() if torch.cuda.is_available() else 0
     model_vram = _registry_vram(model_id)
-    single_gpu_vram = 22.0  # L4 capacity; ablation hooks need headroom beyond model weights
+    # Actual GPU VRAM minus headroom for ablation activations; falls back to L4 default.
+    single_gpu_vram = (torch.cuda.get_device_properties(0).total_memory / 1e9 - 8.0
+                       if torch.cuda.is_available() else 22.0)
 
     # Models that don't fit on a single GPU in bf16 are loaded in 8-bit instead of
     # being spread via device_map="auto". Activation patching across GPUs causes OOM
