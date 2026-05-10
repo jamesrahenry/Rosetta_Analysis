@@ -64,6 +64,42 @@ CONCEPTS: list[str] = [
     "certainty", "moral_valence", "temporal_order",
 ]
 
+P3_MODELS: list[str] = [
+    # Pythia
+    "EleutherAI/pythia-70m",
+    "EleutherAI/pythia-160m",
+    "EleutherAI/pythia-410m",
+    "EleutherAI/pythia-1b",
+    "EleutherAI/pythia-1.4b",
+    "EleutherAI/pythia-2.8b",
+    "EleutherAI/pythia-6.9b",
+    # GPT-2
+    "openai-community/gpt2",
+    "openai-community/gpt2-medium",
+    "openai-community/gpt2-large",
+    "openai-community/gpt2-xl",
+    # OPT
+    "facebook/opt-125m",
+    "facebook/opt-350m",
+    "facebook/opt-1.3b",
+    "facebook/opt-2.7b",
+    "facebook/opt-6.7b",
+    # Qwen2.5
+    "Qwen/Qwen2.5-0.5B",
+    "Qwen/Qwen2.5-1.5B",
+    "Qwen/Qwen2.5-3B",
+    "Qwen/Qwen2.5-7B",
+    # Gemma-2
+    "google/gemma-2-2b",
+    "google/gemma-2-9b",
+    # Llama-3.2
+    "meta-llama/Llama-3.2-1B",
+    "meta-llama/Llama-3.2-3B",
+    # Mistral / Phi
+    "mistralai/Mistral-7B-v0.3",
+    "microsoft/phi-2",
+]
+
 
 def random_unit_vector(dim: int, rng: np.random.Generator) -> np.ndarray:
     """Draw an isotropic random unit vector of given dimensionality."""
@@ -308,6 +344,7 @@ def main():
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--model", type=str)
     group.add_argument("--all", action="store_true")
+    group.add_argument("--p3-corpus", action="store_true", help="Paper 3 CAZ Validation: 26 base models")
 
     parser.add_argument("--concepts", nargs="+", default=None)
     parser.add_argument("--n-seeds", type=int, default=10,
@@ -325,6 +362,8 @@ def main():
     if args.all:
         models = discover_all_models()
         log.info("Found %d models", len(models))
+    elif args.p3_corpus:
+        models = P3_MODELS
     else:
         models = [args.model]
 

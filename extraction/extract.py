@@ -130,6 +130,59 @@ P1_MODELS: list[str] = [
     "google/gemma-2-9b",
 ]
 
+# Paper 3 (CAZ Validation) canonical model set — 26 base models across
+# 8 architecture families, 7 concepts (credibility, certainty, causation,
+# temporal_order, negation, sentiment, moral_valence).
+P3_MODELS: list[str] = [
+    # Pythia scale ladder (EleutherAI) — 70M–6.9B, excludes pythia-12b
+    "EleutherAI/pythia-70m",
+    "EleutherAI/pythia-160m",
+    "EleutherAI/pythia-410m",
+    "EleutherAI/pythia-1b",
+    "EleutherAI/pythia-1.4b",
+    "EleutherAI/pythia-2.8b",
+    "EleutherAI/pythia-6.9b",
+    # GPT-2 family (OpenAI)
+    "openai-community/gpt2",
+    "openai-community/gpt2-medium",
+    "openai-community/gpt2-large",
+    "openai-community/gpt2-xl",
+    # OPT (Meta) — 125M–6.7B
+    "facebook/opt-125m",
+    "facebook/opt-350m",
+    "facebook/opt-1.3b",
+    "facebook/opt-2.7b",
+    "facebook/opt-6.7b",
+    # Qwen2.5 (Alibaba)
+    "Qwen/Qwen2.5-0.5B",
+    "Qwen/Qwen2.5-1.5B",
+    "Qwen/Qwen2.5-3B",
+    "Qwen/Qwen2.5-7B",
+    # Gemma 2 (Google)
+    "google/gemma-2-2b",
+    "google/gemma-2-9b",
+    # Llama 3.2 (Meta)
+    "meta-llama/Llama-3.2-1B",
+    "meta-llama/Llama-3.2-3B",
+    # Mistral
+    "mistralai/Mistral-7B-v0.3",
+    # Phi (Microsoft)
+    "microsoft/phi-2",
+]
+
+# Paper 3 supplementary instruct variants — 9 models
+P3_INSTRUCT_MODELS: list[str] = [
+    "Qwen/Qwen2.5-0.5B-Instruct",
+    "Qwen/Qwen2.5-1.5B-Instruct",
+    "Qwen/Qwen2.5-3B-Instruct",
+    "Qwen/Qwen2.5-7B-Instruct",
+    "meta-llama/Llama-3.2-1B-Instruct",
+    "meta-llama/Llama-3.2-3B-Instruct",
+    "mistralai/Mistral-7B-Instruct-v0.3",
+    "google/gemma-2-2b-it",
+    "google/gemma-2-9b-it",
+]
+
 DEFAULT_CONCEPTS = CAZ_PRH_CONCEPTS  # 17 concepts from canonical dataset
 
 # Canonical results root — all extractions land here, no timestamps
@@ -531,6 +584,10 @@ def parse_args():
     group.add_argument("--model", type=str)
     group.add_argument("--p1-corpus", action="store_true",
                        help="Paper 1 CAZ corpus: 19 L4-runnable models across 8 architectural families")
+    group.add_argument("--p3-corpus", action="store_true",
+                       help="Paper 3 CAZ Validation: 26 base models across 8 architecture families")
+    group.add_argument("--p3-corpus-instruct", action="store_true",
+                       help="Paper 3 supplementary: 9 instruct-tuned variants")
     group.add_argument("--all", action="store_true", help="Run legacy cross-arch model set")
     group.add_argument("--frontier", action="store_true",
                        help="Run frontier-scale models only (8192-dim, H200)")
@@ -576,6 +633,10 @@ def main():
 
     if args.p1_corpus:
         models = P1_MODELS
+    elif args.p3_corpus:
+        models = P3_MODELS
+    elif args.p3_corpus_instruct:
+        models = P3_INSTRUCT_MODELS
     elif args.prh_proxy:
         models = PRH_PROXY_MODELS
     elif args.prh_frontier:
