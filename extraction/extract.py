@@ -103,32 +103,49 @@ CROSS_ARCH_MODELS = PRH_PROXY_MODELS  # legacy alias
 # 8 architectural families.  gpt2-large and gpt2-xl are not in the PRH registry
 # clusters but are included here as the GPT-2 scale ladder.
 P1_MODELS: list[str] = [
-    # Pythia scale ladder (EleutherAI)
+    # Pythia scale ladder (EleutherAI) — 70M–12B
     "EleutherAI/pythia-70m",
     "EleutherAI/pythia-160m",
     "EleutherAI/pythia-410m",
     "EleutherAI/pythia-1b",
+    "EleutherAI/pythia-1.4b",
     "EleutherAI/pythia-2.8b",
     "EleutherAI/pythia-6.9b",
     "EleutherAI/pythia-12b",
     # GPT-2 family (OpenAI)
     "openai-community/gpt2",
+    "openai-community/gpt2-medium",
     "openai-community/gpt2-large",
     "openai-community/gpt2-xl",
-    # OPT (Meta)
+    # OPT (Meta) — 125M–6.7B
+    "facebook/opt-125m",
+    "facebook/opt-350m",
+    "facebook/opt-1.3b",
+    "facebook/opt-2.7b",
     "facebook/opt-6.7b",
-    # Qwen2.5 (Alibaba)
+    # Qwen2.5 base (Alibaba)
     "Qwen/Qwen2.5-0.5B",
     "Qwen/Qwen2.5-1.5B",
     "Qwen/Qwen2.5-3B",
     "Qwen/Qwen2.5-7B",
-    # Llama (Meta)
+    # Gemma 2 base (Google)
+    "google/gemma-2-2b",
+    "google/gemma-2-9b",
+    # Llama 3.1 (Meta)
     "meta-llama/Llama-3.1-8B",
-    "meta-llama/Llama-3.1-8B-Instruct",
     # Mistral
     "mistralai/Mistral-7B-v0.3",
-    # Gemma (Google)
-    "google/gemma-2-9b",
+    # Phi (Microsoft)
+    "microsoft/phi-2",
+    # ── Instruct variants (8) ──────────────────────────────────────────────
+    "meta-llama/Llama-3.1-8B-Instruct",
+    "Qwen/Qwen2.5-0.5B-Instruct",
+    "Qwen/Qwen2.5-1.5B-Instruct",
+    "Qwen/Qwen2.5-3B-Instruct",
+    "Qwen/Qwen2.5-7B-Instruct",
+    "mistralai/Mistral-7B-Instruct-v0.3",
+    "google/gemma-2-2b-it",
+    "google/gemma-2-9b-it",
 ]
 
 # Paper 3 (CAZ Validation) canonical model set — 26 base models across
