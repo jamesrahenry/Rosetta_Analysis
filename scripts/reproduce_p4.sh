@@ -1,19 +1,29 @@
 #!/usr/bin/env bash
 # reproduce_p4.sh — Paper 4 (PRH / Concept-Selective Convergence) end-to-end reproduction
 #
-# Extracts concept vectors for the PRH proxy corpus (19 models across 5 same-dim
-# clusters), runs Procrustes alignment and all nulls, then runs the P5
-# proportional-depth analysis and validation battery.
+# Extracts concept vectors for the PRH proxy corpus (clusters A–E+G + scale ladder),
+# runs Procrustes alignment and all nulls, then runs the P5 proportional-depth
+# analysis and validation battery.
+#
+# Corpus: defined in rosetta_tools models.yaml by cluster.  Current clusters:
+#   A 768-dim  (4 models), B 2048-dim (5), C 4096-dim (6), D 3584-dim (2),
+#   E 5120-dim (3), G 5376-dim (1 — single model, no Procrustes pairs yet),
+#   scale ladder (5, excluded from primary Procrustes results).
+# Note: Cluster G needs a second 5376-dim model before it contributes Procrustes pairs.
+#
+# Paper stats are derived from whatever data this script produces — the corpus
+# grows as models.yaml is updated and the numbers update accordingly.
 #
 # Usage:
 #   ./scripts/reproduce_p4.sh                       # full PRH proxy corpus
 #   ./scripts/reproduce_p4.sh --quick               # Cluster A only (4 models, ~30 min)
 #   ./scripts/reproduce_p4.sh --no-clean-cache      # keep HF cache (use on H200)
+#   ./scripts/reproduce_p4.sh --gpu-only            # extraction + CKA, skip alignment analysis
 #   ./scripts/reproduce_p4.sh --with-frontier       # also extract Cluster F (H200 only)
 #
 # Requirements:
 #   - NVIDIA GPU (≥16GB VRAM; H200 recommended for Cluster E and frontier)
-#   - HF_TOKEN env var for gated models (Llama-3.1-8B, Mistral, Gemma-2)
+#   - HF_TOKEN env var for gated models (Llama-3.1-8B, Mistral, Gemma-2, Gemma-4)
 #   - uv (https://docs.astral.sh/uv/) — used to manage the Python environment
 #   - Rosetta_Concept_Pairs available (see concept pairs section in README)
 
