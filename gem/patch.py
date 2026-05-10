@@ -80,8 +80,10 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 CONCEPTS: list[str] = [
-    "credibility", "negation", "sentiment", "causation",
-    "certainty", "moral_valence", "temporal_order",
+    "agency", "authorization", "causation", "certainty", "credibility",
+    "deception", "exfiltration", "formality", "moral_valence", "negation",
+    "plurality", "sarcasm", "sentiment", "specificity", "temporal_order",
+    "threat_severity", "urgency",
 ]
 
 P3_MODELS: list[str] = [

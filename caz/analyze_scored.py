@@ -38,20 +38,32 @@ from rosetta_tools.models import all_models
 MODEL_ORDER = all_models(include_disabled=True)
 
 CONCEPT_ORDER = [
-    "credibility", "certainty",      # epistemic
-    "sentiment", "moral_valence",    # affective
-    "causation", "temporal_order",   # relational
-    "negation",                      # syntactic
+    "temporal_order", "causation", "agency",                      # relational
+    "negation", "plurality",                                       # syntactic
+    "sentiment", "moral_valence", "urgency", "threat_severity",   # affective
+    "certainty", "credibility", "deception", "sarcasm",           # epistemic
+    "specificity", "formality",                                    # epistemic (stylistic)
+    "authorization", "exfiltration",                               # security
 ]
 
 CONCEPT_TYPES = {
     "credibility": "epistemic",
     "certainty": "epistemic",
+    "deception": "epistemic",
+    "sarcasm": "epistemic",
+    "specificity": "epistemic",
+    "formality": "epistemic",
     "sentiment": "affective",
     "moral_valence": "affective",
+    "urgency": "affective",
+    "threat_severity": "affective",
     "causation": "relational",
     "temporal_order": "relational",
+    "agency": "relational",
     "negation": "syntactic",
+    "plurality": "syntactic",
+    "authorization": "security",
+    "exfiltration": "security",
 }
 
 
