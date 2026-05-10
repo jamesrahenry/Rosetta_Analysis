@@ -93,7 +93,8 @@ PRH_SCALE_LADDER   = models_by_cluster("scale")
 
 PRH_PROXY_MODELS = (
     PRH_CLUSTER_A + PRH_CLUSTER_B + PRH_CLUSTER_C
-    + PRH_CLUSTER_D + PRH_CLUSTER_E + PRH_CLUSTER_G + PRH_SCALE_LADDER
+    + PRH_CLUSTER_D + PRH_CLUSTER_E + PRH_SCALE_LADDER
+    # Cluster G (5376-dim) excluded until a second same-dim model is available
 )
 
 FRONTIER_MODELS = PRH_FRONTIER_MODELS

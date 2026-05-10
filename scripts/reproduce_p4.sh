@@ -7,9 +7,8 @@
 #
 # Corpus: defined in rosetta_tools models.yaml by cluster.  Current clusters:
 #   A 768-dim  (4 models), B 2048-dim (5), C 4096-dim (6), D 3584-dim (2),
-#   E 5120-dim (3), G 5376-dim (1 — single model, no Procrustes pairs yet),
-#   scale ladder (5, excluded from primary Procrustes results).
-# Note: Cluster G needs a second 5376-dim model before it contributes Procrustes pairs.
+#   E 5120-dim (3), scale ladder (5, excluded from primary Procrustes results).
+# Cluster G (5376-dim) is excluded until a second same-dim model is available.
 #
 # Paper stats are derived from whatever data this script produces — the corpus
 # grows as models.yaml is updated and the numbers update accordingly.
