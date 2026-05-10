@@ -340,6 +340,31 @@ def run_model(model_id: str, concepts: list[str], args) -> None:
         log.error("No extraction results found for %s — run extract.py first", model_id)
         return
 
+    # Skip model load entirely when every concept already has a valid result
+    if not getattr(args, "force", False):
+        def _result_valid(c: str) -> bool:
+            p = extraction_dir / f"ablation_{c}.json"
+            if not p.exists():
+                return False
+            try:
+                d = json.loads(p.read_text())
+                return (d.get("model_id") == model_id
+                        and d.get("concept") == c
+                        and d.get("n_pairs", 0) >= args.n_pairs
+                        and d.get("n_layers", 0) > 0)
+            except (json.JSONDecodeError, OSError):
+                return False
+
+        todo = [c for c in concepts if not _result_valid(c)]
+        if not todo:
+            log.info("=== Ablation sweep: %s — all %d concepts done (n_pairs≥%d), skipping ===",
+                     model_id, len(concepts), args.n_pairs)
+            return
+        if len(todo) < len(concepts):
+            log.info("=== Ablation sweep: %s — %d/%d concepts remaining ===",
+                     model_id, len(todo), len(concepts))
+            concepts = todo
+
     log.info("=== Ablation sweep: %s ===", model_id)
     log.info("Using extraction results from: %s", extraction_dir)
 
@@ -373,10 +398,47 @@ def run_model(model_id: str, concepts: list[str], args) -> None:
     for i, concept in enumerate(concepts):
         log.info("--- Concept %d/%d: %s ---", i + 1, len(concepts), concept)
 
+        # Concept-level skip — validate model, concept, and pair counts
+        out_file = extraction_dir / f"ablation_{concept}.json"
+        if out_file.exists() and not getattr(args, "force", False):
+            try:
+                with open(out_file) as _f:
+                    _existing = json.load(_f)
+                _ok = (
+                    _existing.get("model_id") == model_id
+                    and _existing.get("concept") == concept
+                    and _existing.get("n_pairs", 0) >= args.n_pairs
+                    and _existing.get("n_layers", 0) > 0
+                )
+                if _ok:
+                    log.info(
+                        "  Already done (model=%s concept=%s n_pairs=%d n_layers=%d) — skipping",
+                        model_id.split("/")[-1], concept,
+                        _existing["n_pairs"], _existing["n_layers"],
+                    )
+                    continue
+                else:
+                    log.info(
+                        "  Existing result invalid or stale (n_pairs=%s, n_layers=%s) — re-running",
+                        _existing.get("n_pairs"), _existing.get("n_layers"),
+                    )
+            except (json.JSONDecodeError, OSError):
+                log.warning("  Existing %s unreadable — re-running", out_file.name)
+
         extraction_data = load_concept_directions(extraction_dir, concept)
         if extraction_data is None:
             log.warning("No extraction data for %s, skipping", concept)
             continue
+
+        # Validate n_pairs against what was extracted
+        extracted_n = extraction_data.get("layer_data", {}).get("n_pairs",
+                      extraction_data.get("n_pairs", None))
+        if extracted_n is not None and args.n_pairs > extracted_n:
+            log.warning(
+                "  Requested n_pairs=%d > extracted n_pairs=%d — clamping to %d",
+                args.n_pairs, extracted_n, extracted_n,
+            )
+            args.n_pairs = extracted_n
 
         result = ablation_sweep(
             model, tokenizer, concept, extraction_data,
@@ -434,6 +496,8 @@ def parse_args():
     parser.add_argument("--dtype", choices=["auto", "bfloat16", "float32"], default="auto")
     parser.add_argument("--clean-cache", action="store_true",
                         help="Delete model from HF cache after ablation")
+    parser.add_argument("--force", action="store_true",
+                        help="Re-run even if ablation_{concept}.json already exists")
     return parser.parse_args()
 
 
