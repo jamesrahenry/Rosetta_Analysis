@@ -30,7 +30,13 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-RESULTS_ROOT = Path(__file__).parent.parent / "results"
+try:
+    from rosetta_tools.paths import ROSETTA_MODELS, ROSETTA_RESULTS
+    RESULTS_ROOT = ROSETTA_MODELS
+    _DEFAULT_OUT = ROSETTA_RESULTS / "CAZ_Framework" / "scored_analysis.md"
+except ImportError:
+    RESULTS_ROOT = Path(__file__).parent.parent / "results"
+    _DEFAULT_OUT = Path(__file__).parent.parent / "SCORED_CAZ_ANALYSIS.md"
 
 # Model display order: by family then scale
 from rosetta_tools.models import all_models
@@ -465,22 +471,24 @@ def main():
         description="Systematic scored CAZ analysis across all models"
     )
     parser.add_argument("--output", type=str, default=None,
-                        help="Output markdown path (default: SCORED_CAZ_ANALYSIS.md)")
+                        help="Output markdown path (default: $ROSETTA_RESULTS/CAZ_Framework/scored_analysis.md)")
+    parser.add_argument("--results-dir", type=str, default=None,
+                        help="Directory containing model result subdirs (default: $ROSETTA_MODELS)")
     parser.add_argument("--csv", action="store_true",
                         help="Also save the full scored region DataFrame as CSV")
     args = parser.parse_args()
 
-    output_path = Path(args.output) if args.output else (
-        Path(__file__).parent.parent / "SCORED_CAZ_ANALYSIS.md"
-    )
+    results_root = Path(args.results_dir) if args.results_dir else RESULTS_ROOT
+    output_path = Path(args.output) if args.output else _DEFAULT_OUT
+    output_path.parent.mkdir(parents=True, exist_ok=True)
 
     # ── Load all extraction results ──
-    log.info("Loading extraction results from %s...", RESULTS_ROOT)
+    log.info("Loading extraction results from %s...", results_root)
     result_dirs = sorted([
-        d for d in RESULTS_ROOT.iterdir()
+        d for d in results_root.iterdir()
         if d.is_dir() and not d.name.startswith(("manifold_", "deepdive_"))
     ])
-    log.info("Found %d result directories", len(result_dirs))
+    log.info("Found %d result directories in %s", len(result_dirs), results_root)
 
     layer_df = load_results_dir(result_dirs)
     if layer_df is None or layer_df.empty:
