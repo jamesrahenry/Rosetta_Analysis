@@ -298,11 +298,14 @@ class TestP5NullTests:
 
 @pytest.mark.slow
 class TestCrossArchOrdering:
-    """Paper §5.2: Cross-architecture concept ordering (base models, N=100 corpus).
+    """Paper §5.2: Cross-architecture concept ordering (base models, N=200/250 corpus).
 
-    N=100 values (26 base models, H200 run): median τ ≈ 0.29, ~69% positive, p ≈ 0.02.
-    NOTE: paper text still cites N=250 values (τ=0.54, 87%, p<0.001) — needs update.
-    The ordering effect is present but weaker at N=100.
+    Paper claim: 81% of base models positively correlated with consensus ordering,
+    permutation p=0.04 (26 base models, N=200 pairs).
+
+    Uses all_p1_n200_caz (N≥200 extractions) rather than N=100 snapshots.
+    N=100 gives 69% positive with noisier peak-depth estimates; N=200 resolves
+    enough noise to match the paper's stated rate.
     """
 
     @staticmethod
@@ -313,78 +316,73 @@ class TestCrossArchOrdering:
             result[concept] = max(range(len(metrics)), key=lambda i: metrics[i].separation)
         return result
 
-    def test_median_kendall_tau(self, all_p1_caz):
-        """Median Kendall τ against mean concept ordering. N=100 corpus: ~0.29."""
-        all_peak_layers = {slug: self._peak_layers(data) for slug, data in all_p1_caz.items()}
-
+    @staticmethod
+    def _consensus_and_taus(all_peak_layers: dict) -> tuple[list, list]:
+        """Return (mean_rank order, per-model τ list) against the corpus mean ordering."""
         concept_mean_peaks = {
             c: np.mean([all_peak_layers[slug][c] for slug in all_peak_layers])
             for c in P1_CONCEPTS
         }
         mean_rank = [c for c, _ in sorted(concept_mean_peaks.items(), key=lambda x: x[1])]
+        taus = [
+            stats.kendalltau([peaks[c] for c in mean_rank], list(range(len(P1_CONCEPTS))))[0]
+            for peaks in all_peak_layers.values()
+        ]
+        return mean_rank, taus
 
-        taus = []
-        for slug, peaks in all_peak_layers.items():
-            tau, _ = stats.kendalltau([peaks[c] for c in mean_rank], list(range(len(mean_rank))))
-            taus.append(tau)
+    def test_fraction_positively_correlated(self, all_p1_n200_caz):
+        """§5.2: ≥75% of base models positively correlated with consensus ordering.
 
-        median_tau = float(np.median(taus))
-        assert median_tau > 0, \
-            f"Median Kendall τ should be positive, got {median_tau:.3f}"
-        assert abs(median_tau - 0.29) < 0.12, \
-            f"Median Kendall τ: expected ~0.29 (N=100), got {median_tau:.3f}"
+        Paper: 81% (21/26) at N=200. Floor set to 75% to absorb single-model variance.
+        """
+        all_peak_layers = {slug: self._peak_layers(data) for slug, data in all_p1_n200_caz.items()}
+        _, taus = self._consensus_and_taus(all_peak_layers)
+        frac = sum(t > 0 for t in taus) / len(taus)
+        assert frac >= 0.75, \
+            f"Fraction positively correlated: {frac:.1%} ({sum(t>0 for t in taus)}/{len(taus)}), expected ≥75%"
 
-    def test_fraction_positively_correlated(self, all_p1_caz):
-        """Majority of models have τ > 0 with the mean concept ordering. N=100: ~69%."""
-        all_peak_layers = {slug: self._peak_layers(data) for slug, data in all_p1_caz.items()}
-        concept_mean_peaks = {
-            c: np.mean([all_peak_layers[slug][c] for slug in all_peak_layers])
-            for c in P1_CONCEPTS
-        }
-        mean_rank = [c for c, _ in sorted(concept_mean_peaks.items(), key=lambda x: x[1])]
+    def test_mean_tau_positive(self, all_p1_n200_caz):
+        """§5.2: mean τ across models is positive (direction check, no point estimate)."""
+        all_peak_layers = {slug: self._peak_layers(data) for slug, data in all_p1_n200_caz.items()}
+        _, taus = self._consensus_and_taus(all_peak_layers)
+        assert np.mean(taus) > 0, \
+            f"Mean τ = {np.mean(taus):.3f}; expected positive"
 
-        n_positive = sum(
-            1 for slug, peaks in all_peak_layers.items()
-            if stats.kendalltau(
-                [peaks[c] for c in mean_rank], list(range(len(mean_rank)))
-            )[0] > 0
-        )
-        frac = n_positive / len(all_peak_layers)
-        assert frac >= 0.55, \
-            f"Fraction positively correlated: expected ≥55% (N=100 corpus), got {frac:.1%}"
-
-    def test_permutation_p_below_threshold(self, all_p1_caz):
-        """Permutation p for mean τ vs shuffle null. N=100 corpus: p < 0.05."""
+    def test_permutation_p_below_threshold(self, all_p1_n200_caz):
+        """§5.2: permutation p < 0.05 for mean τ vs shuffle null. Paper: p=0.04."""
         rng = np.random.default_rng(42)
-        all_peak_layers = {slug: self._peak_layers(data) for slug, data in all_p1_caz.items()}
-        concept_mean_peaks = {
-            c: np.mean([all_peak_layers[slug][c] for slug in all_peak_layers])
-            for c in P1_CONCEPTS
-        }
-        mean_rank = [c for c, _ in sorted(concept_mean_peaks.items(), key=lambda x: x[1])]
-
-        observed_taus = []
-        for slug, peaks in all_peak_layers.items():
-            tau, _ = stats.kendalltau(
-                [peaks[c] for c in mean_rank], list(range(len(mean_rank)))
-            )
-            observed_taus.append(tau)
+        all_peak_layers = {slug: self._peak_layers(data) for slug, data in all_p1_n200_caz.items()}
+        mean_rank, observed_taus = self._consensus_and_taus(all_peak_layers)
         observed_mean = np.mean(observed_taus)
 
         null_means = []
         for _ in range(5000):
             perm = rng.permutation(len(P1_CONCEPTS))
             null_taus = [
-                stats.kendalltau(
-                    [peaks[c] for c in mean_rank], perm.tolist()
-                )[0]
+                stats.kendalltau([peaks[c] for c in mean_rank], perm.tolist())[0]
                 for peaks in all_peak_layers.values()
             ]
             null_means.append(np.mean(null_taus))
 
         p_val = np.mean(np.array(null_means) >= observed_mean)
         assert p_val < 0.05, \
-            f"Permutation p = {p_val:.4f}; expected p < 0.05 (N=100 corpus)"
+            f"Permutation p = {p_val:.4f}; expected p < 0.05"
+
+    def test_consensus_ordering_syntactic_before_epistemic(self, all_p1_n200_caz):
+        """§5.2: negation peaks before credibility in the consensus ordering.
+
+        The syntactic-before-epistemic gradient is the theoretical prediction —
+        this is the most concrete falsifiable form of it.
+        """
+        all_peak_layers = {slug: self._peak_layers(data) for slug, data in all_p1_n200_caz.items()}
+        concept_mean_peaks = {
+            c: np.mean([all_peak_layers[slug][c] for slug in all_peak_layers])
+            for c in P1_CONCEPTS
+        }
+        assert concept_mean_peaks["negation"] < concept_mean_peaks["credibility"], (
+            f"negation mean peak {concept_mean_peaks['negation']:.1f} should be shallower than "
+            f"credibility {concept_mean_peaks['credibility']:.1f}"
+        )
 
 
 # ============================================================================
