@@ -303,9 +303,18 @@ def patch_sweep(
              baseline_gap, baseline_pos_score, baseline_neg_score)
 
     # ── Step 2: sweep layers ──
+    # n_tracked may be < n_layers for models with heterogeneous hidden dims
+    # (e.g. OPT-350m word_embed_proj_dim=512 — boundary states filtered by extraction).
+    n_tracked = len(metrics_raw)
+    if n_tracked < n_layers:
+        log.warning(
+            "  metrics_raw has %d entries but model has %d layers — "
+            "skipping last %d (heterogeneous hidden dims, e.g. OPT-350m)",
+            n_tracked, n_layers, n_layers - n_tracked,
+        )
     results_per_layer = []
 
-    for layer_idx in range(n_layers):
+    for layer_idx in range(n_tracked):
         if device == "cuda":
             torch.cuda.empty_cache()
 
