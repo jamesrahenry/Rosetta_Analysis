@@ -571,10 +571,13 @@ def run_model(
         p = extraction_dir / f"ablation_gem_{concept}.json"
         if not p.exists():
             return False
-        if not args.compare_peak:
-            return True
         try:
-            return "comparison" in json.loads(p.read_text())
+            d = json.loads(p.read_text())
+            if d.get("n_pairs", 0) < args.n_pairs:
+                return False
+            if args.compare_peak and "comparison" not in d:
+                return False
+            return True
         except (json.JSONDecodeError, OSError):
             return False
 
