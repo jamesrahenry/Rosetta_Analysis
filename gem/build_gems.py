@@ -77,11 +77,19 @@ def build_model_gems(
 
         out_path = extraction_dir / f"gem_{concept}.json"
         if out_path.exists() and not force:
-            # Check freshness: GEM should be newer than caz data
+            # Check freshness: GEM should be newer than caz data AND match n_pairs
             if out_path.stat().st_mtime > caz_path.stat().st_mtime:
-                log.info("  %s: GEM up-to-date, skipping (use --force to rebuild)",
-                         concept)
-                continue
+                try:
+                    caz_n = json.loads(caz_path.read_text()).get("n_pairs", 0)
+                    gem_n = json.loads(out_path.read_text()).get("n_pairs", 0)
+                    if gem_n >= caz_n > 0:
+                        log.info("  %s: GEM up-to-date, skipping (use --force to rebuild)",
+                                 concept)
+                        continue
+                    log.info("  %s: GEM n_pairs mismatch (gem=%d caz=%d) — rebuilding",
+                             concept, gem_n, caz_n)
+                except Exception:
+                    pass  # fall through to rebuild
 
         caz_data = json.loads(caz_path.read_text())
 
@@ -112,8 +120,14 @@ def build_model_gems(
                     log.warning("  %s node %d: %s", concept, node.caz_index, w)
                 all_warnings.extend(warnings)
 
-        # Save
+        # Save — patch n_pairs from caz_data so skip logic can validate it
         save_gem(gem, out_path)
+        try:
+            gem_dict = json.loads(out_path.read_text())
+            gem_dict["n_pairs"] = caz_data.get("n_pairs", 0)
+            out_path.write_text(json.dumps(gem_dict, indent=2))
+        except Exception:
+            pass
 
         # Diagnostics
         diag = gem_diagnostics(gem)
