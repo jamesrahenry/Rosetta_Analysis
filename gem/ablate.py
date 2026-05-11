@@ -257,9 +257,21 @@ def ablation_sweep(
             out = model(**enc)
         baseline_logits.append(out.logits[0, -1, :].cpu())
 
-    # Sweep all layers
+    # Sweep all layers.
+    # n_tracked may be < n_layers for models with heterogeneous hidden dims
+    # (e.g. OPT-350m: word_embed_proj_dim=512 causes the boundary hidden
+    # states to be filtered by extraction's modal-dim check, leaving fewer
+    # entries in metrics_raw than actual decoder layers).
+    n_tracked = len(metrics_raw)
+    if n_tracked < n_layers:
+        log.warning(
+            "  metrics_raw has %d entries but model has %d layers — "
+            "last %d layer(s) have no extraction data and will be skipped "
+            "(likely heterogeneous hidden dims, e.g. OPT-350m word_embed_proj_dim)",
+            n_tracked, n_layers, n_layers - n_tracked,
+        )
     results_per_layer = []
-    for layer_idx in range(n_layers):
+    for layer_idx in range(n_tracked):
         torch.cuda.empty_cache() if device == "cuda" else None
         # Get concept direction at this layer
         dom_vector = np.array(metrics_raw[layer_idx]["dom_vector"], dtype=np.float64)
