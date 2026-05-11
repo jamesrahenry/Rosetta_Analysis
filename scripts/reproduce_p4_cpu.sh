@@ -35,14 +35,16 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 WITH_FRONTIER=false
 SKIP_P5=false
+SKIP_ALIGNMENT_NULLS=false
 
 # ---------------------------------------------------------------------------
 # Parse arguments
 # ---------------------------------------------------------------------------
 for arg in "$@"; do
     case $arg in
-        --with-frontier) WITH_FRONTIER=true ;;
-        --skip-p5)       SKIP_P5=true ;;
+        --with-frontier)        WITH_FRONTIER=true ;;
+        --skip-p5)              SKIP_P5=true ;;
+        --skip-alignment-nulls) SKIP_ALIGNMENT_NULLS=true ;;
         --help|-h)
             sed -n '2,30p' "$0" | sed 's/^# \?//'
             exit 0
@@ -136,29 +138,35 @@ elapsed
 
 # ---------------------------------------------------------------------------
 # Step 6 — Alignment nulls (CPU)
+# Superseded by the P5 validation battery (Steps 7-9) for current analysis.
+# Skip with --skip-alignment-nulls (recommended) unless specifically needed.
 # ---------------------------------------------------------------------------
-step "6a / Permuted-label null (100 trials per pair)"
+if [ "${SKIP_ALIGNMENT_NULLS}" = true ]; then
+    info "Skipping alignment nulls (--skip-alignment-nulls set) — use P5 battery instead."
+else
+    step "6a / Permuted-label null (100 trials per pair)"
 
-$PY alignment/align.py --all --same-dim-only \
-    --permute-labels 100
+    $PY alignment/align.py --all --same-dim-only \
+        --permute-labels 100
 
-elapsed
+    elapsed
 
-step "6b / Cross-concept rotation transfer (universality test)"
-info "Expected: universality ratio ~0.194 (concept-selective, not universal)."
+    step "6b / Cross-concept rotation transfer (universality test)"
+    info "Expected: universality ratio ~0.194 (concept-selective, not universal)."
 
-$PY alignment/align.py --all --same-dim-only \
-    --cross-concept-transfer
+    $PY alignment/align.py --all --same-dim-only \
+        --cross-concept-transfer
 
-elapsed
+    elapsed
 
-step "6c / Split-calibration artifact test (20 splits)"
-info "Confirms R generalises to held-out DOM vectors."
+    step "6c / Split-calibration artifact test (20 splits)"
+    info "Confirms R generalises to held-out DOM vectors."
 
-$PY alignment/align.py --all --same-dim-only \
-    --split-calibration --n-splits 20
+    $PY alignment/align.py --all --same-dim-only \
+        --split-calibration --n-splits 20
 
-elapsed
+    elapsed
+fi
 
 # ---------------------------------------------------------------------------
 # Steps 7-9 — P5 analysis (CPU, long-running — skip with --skip-p5)
