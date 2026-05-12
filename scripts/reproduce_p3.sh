@@ -251,8 +251,12 @@ step "5b / Gemma Scope SAE cross-validation"
 info "Validates CAZ layer assignments against independent SAE feature activations."
 info "Requires Rosetta_Feature_Library at ~/Rosetta_Feature_Library or repo root."
 
-$PY caz/gemma_scope_xval.py \
-    --out "${PAPER_OUT}/gemma_scope_xval"
+if [ -f "${PAPER_OUT}/gemma_scope_xval/summary.json" ]; then
+    info "Gemma Scope xval already complete — skipping (delete ${PAPER_OUT}/gemma_scope_xval/ to re-run)."
+else
+    $PY caz/gemma_scope_xval.py \
+        --out "${PAPER_OUT}/gemma_scope_xval"
+fi
 
 elapsed
 
