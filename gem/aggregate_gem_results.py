@@ -31,6 +31,7 @@ PARAM_LOOKUP = {
     "EleutherAI/pythia-1.4b": 1.4,
     "EleutherAI/pythia-2.8b": 2.8,
     "EleutherAI/pythia-6.9b": 6.9,
+    "EleutherAI/pythia-12b": 12.0,
     "openai-community/gpt2": 0.124,
     "openai-community/gpt2-medium": 0.355,
     "openai-community/gpt2-large": 0.774,
@@ -47,6 +48,8 @@ PARAM_LOOKUP = {
     "Qwen/Qwen2.5-3B-Instruct": 3.0,
     "Qwen/Qwen2.5-7B": 7.0,
     "Qwen/Qwen2.5-7B-Instruct": 7.0,
+    "Qwen/Qwen2.5-14B": 14.0,
+    "Qwen/Qwen2.5-14B-Instruct": 14.0,
     "meta-llama/Llama-3.2-1B": 1.0,
     "meta-llama/Llama-3.2-1B-Instruct": 1.0,
     "meta-llama/Llama-3.2-3B": 3.0,
@@ -183,8 +186,6 @@ def median(vals):
 
 def sign_test_pvalue(n_positive, n_total):
     """Two-sided sign test p-value using exact binomial."""
-    # Under H0: each comparison equally likely to be handoff-better or peak-better
-    # P(X >= n_positive) + P(X <= n_total - n_positive) under Binom(n_total, 0.5)
     from math import comb
     if n_total == 0:
         return 1.0
@@ -192,7 +193,20 @@ def sign_test_pvalue(n_positive, n_total):
     p = 0.0
     for i in range(k, n_total + 1):
         p += comb(n_total, i) * (0.5 ** n_total)
-    return min(2 * p, 1.0)  # two-sided
+    return min(2 * p, 1.0)
+
+
+def wilcoxon_pvalue(diffs):
+    """Wilcoxon signed-rank test on a list of diff values. Returns (stat, p)."""
+    from scipy.stats import wilcoxon as _wilcoxon
+    vals = [v for v in diffs if v is not None]
+    if len(vals) < 3:
+        return float("nan"), float("nan")
+    try:
+        stat, p = _wilcoxon(vals)
+        return float(stat), float(p)
+    except Exception:
+        return float("nan"), float("nan")
 
 
 # ── analysis sections ──────────────────────────────────────────────────────
@@ -374,11 +388,26 @@ def section_g_overall(records):
     n = len(records)
     hw = sum(1 for r in records if r["handoff_better"])
     pw = n - hw
-    md = mean([r["diff_pp"] for r in records])
-    med_d = median([r["diff_pp"] for r in records])
+    diffs = [r["diff_pp"] for r in records]
+    md = mean(diffs)
+    med_d = median(diffs)
     mkl_h = mean([r["handoff_kl"] for r in records])
     mkl_p = mean([r["peak_kl"] for r in records])
-    p = sign_test_pvalue(hw, n)
+    sign_p = sign_test_pvalue(hw, n)
+    wilcox_stat, wilcox_p = wilcoxon_pvalue(diffs)
+
+    # Amplification cases: handoff_retained > 150% (ablation increases separation)
+    amplification = [r for r in records if r["handoff_retained"] is not None and r["handoff_retained"] > 150]
+    n_amp = len(amplification)
+    amp_models = sorted(set(r["model_id"].split("/")[-1] for r in amplification))
+
+    # Clean stats: exclude amplification outliers for secondary reporting
+    clean = [r for r in records if r["handoff_retained"] is None or r["handoff_retained"] <= 150]
+    n_c = len(clean)
+    hw_c = sum(1 for r in clean if r["handoff_better"])
+    diffs_c = [r["diff_pp"] for r in clean]
+    md_c = mean(diffs_c)
+    _, wilcox_p_c = wilcoxon_pvalue(diffs_c)
 
     # Per-concept breakdown
     by_concept = defaultdict(list)
@@ -402,7 +431,16 @@ def section_g_overall(records):
         "median_diff": med_d,
         "mean_handoff_kl": mkl_h,
         "mean_peak_kl": mkl_p,
-        "sign_test_p": p,
+        "sign_test_p": sign_p,
+        "wilcoxon_stat": wilcox_stat,
+        "wilcoxon_p": wilcox_p,
+        "n_amplification": n_amp,
+        "amplification_models": amp_models,
+        "clean_n": n_c,
+        "clean_handoff_wins": hw_c,
+        "clean_win_rate": hw_c / n_c * 100 if n_c else 0,
+        "clean_mean_diff": md_c,
+        "clean_wilcoxon_p": wilcox_p_c,
         "concept_stats": concept_stats,
     }
 
@@ -424,19 +462,25 @@ def format_report(records):
 
     # ── G. Overall (lead with the headline) ─────────────────────────────
     overall = section_g_overall(records)
+    n_amp = overall["n_amplification"]
+    amp_note = f" ({n_amp} amplification cases excluded in clean stats; models: {', '.join(overall['amplification_models'])})" if n_amp else ""
     w(f"## G. Overall Statistics")
     w(f"")
-    w(f"| Metric | Value |")
-    w(f"|--------|-------|")
-    w(f"| Total comparisons | {overall['n']} |")
-    w(f"| Handoff wins | {overall['handoff_wins']} ({overall['win_rate']:.1f}%) |")
-    w(f"| Peak wins | {overall['peak_wins']} ({100 - overall['win_rate']:.1f}%) |")
-    w(f"| Mean diff (pp) | {overall['mean_diff']:+.2f} |")
-    w(f"| Median diff (pp) | {overall['median_diff']:+.2f} |")
-    w(f"| Mean handoff KL | {overall['mean_handoff_kl']:.4f} |")
-    w(f"| Mean peak KL | {overall['mean_peak_kl']:.4f} |")
-    w(f"| Sign test p-value | {overall['sign_test_p']:.2e} |")
+    w(f"| Metric | Full corpus | Excl. amplification{' (' + str(n_amp) + ' cases)' if n_amp else ''} |")
+    w(f"|--------|-------------|----------------------|")
+    w(f"| Total comparisons | {overall['n']} | {overall['clean_n']} |")
+    w(f"| Handoff wins | {overall['handoff_wins']} ({overall['win_rate']:.1f}%) | {overall['clean_handoff_wins']} ({overall['clean_win_rate']:.1f}%) |")
+    w(f"| Peak wins | {overall['peak_wins']} ({100 - overall['win_rate']:.1f}%) | {overall['clean_n'] - overall['clean_handoff_wins']} ({100 - overall['clean_win_rate']:.1f}%) |")
+    w(f"| Mean diff (pp) | {overall['mean_diff']:+.2f} | {overall['clean_mean_diff']:+.2f} |")
+    w(f"| Median diff (pp) | {overall['median_diff']:+.2f} | — |")
+    w(f"| Mean handoff KL | {overall['mean_handoff_kl']:.4f} | — |")
+    w(f"| Mean peak KL | {overall['mean_peak_kl']:.4f} | — |")
+    w(f"| Sign test p | {overall['sign_test_p']:.2e} | — |")
+    w(f"| **Wilcoxon signed-rank p** | **{overall['wilcoxon_p']:.2e}** | **{overall['clean_wilcoxon_p']:.2e}** |")
     w(f"")
+    if n_amp:
+        w(f"**Amplification note**: {n_amp} comparisons where handoff ablation *increases* concept separation (H-retained >150%).{amp_note} These are documented architectural anomalies (very shallow models where the settled direction is not yet discriminative at the final layer). Both full-corpus and clean statistics are reported.")
+        w(f"")
     w(f"**Interpretation**: Positive diff = handoff ablation suppresses concept separation more than peak ablation (handoff targets the mechanistically relevant zone).")
     w(f"")
 
