@@ -131,8 +131,12 @@ info "rosetta_tools:    ${RT_SHA}"
 step "5 / Procrustes alignment — primary result (same-dim-only)"
 info "Expected: mean aligned cosine ~0.98, raw ~0.001 (~300× SNR)."
 
-$PY alignment/align.py --all --same-dim-only \
-    --out "${PAPER_OUT}/prh_main.csv"
+if [ -f "${PAPER_OUT}/prh_main.csv" ]; then
+    info "Already complete — skipping (delete ${PAPER_OUT}/prh_main.csv to re-run)."
+else
+    $PY alignment/align.py --all --same-dim-only \
+        --out "${PAPER_OUT}/prh_main.csv"
+fi
 
 elapsed
 
@@ -146,24 +150,36 @@ if [ "${SKIP_ALIGNMENT_NULLS}" = true ]; then
 else
     step "6a / Permuted-label null (100 trials per pair)"
 
-    $PY alignment/align.py --all --same-dim-only \
-        --permute-labels 100
+    if [ -f "${HOME}/rosetta_data/results/null_permuted_all.csv" ]; then
+        info "Already complete — skipping (delete ${HOME}/rosetta_data/results/null_permuted_all.csv to re-run)."
+    else
+        $PY alignment/align.py --all --same-dim-only \
+            --permute-labels 100
+    fi
 
     elapsed
 
     step "6b / Cross-concept rotation transfer (universality test)"
     info "Expected: universality ratio ~0.194 (concept-selective, not universal)."
 
-    $PY alignment/align.py --all --same-dim-only \
-        --cross-concept-transfer
+    if [ -f "${HOME}/rosetta_data/results/cross_concept_transfer.csv" ]; then
+        info "Already complete — skipping (delete ${HOME}/rosetta_data/results/cross_concept_transfer.csv to re-run)."
+    else
+        $PY alignment/align.py --all --same-dim-only \
+            --cross-concept-transfer
+    fi
 
     elapsed
 
     step "6c / Split-calibration artifact test (20 splits)"
     info "Confirms R generalises to held-out DOM vectors."
 
-    $PY alignment/align.py --all --same-dim-only \
-        --split-calibration --n-splits 20
+    if [ -f "${HOME}/rosetta_data/results/split_calibration.csv" ]; then
+        info "Already complete — skipping (delete ${HOME}/rosetta_data/results/split_calibration.csv to re-run)."
+    else
+        $PY alignment/align.py --all --same-dim-only \
+            --split-calibration --n-splits 20
+    fi
 
     elapsed
 fi
@@ -178,20 +194,32 @@ else
     info "Expected: matched 0.331 vs mismatched 0.198, Δ=+0.134, 98/98, p=1.2×10⁻³⁰."
     info "Note: numbers will update as the 17-concept / N=250 corpus is used."
 
-    $PY alignment/p5/p5_propdepth.py --out-dir "${PAPER_OUT}/p5"
+    if [ -f "${PAPER_OUT}/p5/p5_propdepth_samedim_results.json" ]; then
+        info "Already complete — skipping (delete ${PAPER_OUT}/p5/p5_propdepth_samedim_results.json to re-run)."
+    else
+        $PY alignment/p5/p5_propdepth.py --out-dir "${PAPER_OUT}/p5"
+    fi
 
     elapsed
 
     step "8 / P5 CKA analysis"
     info "Requires CKA scores from p5_cka_extract.py (GPU step 4) to be synced."
 
-    $PY alignment/p5/p5_cka_analyze.py --out-dir "${PAPER_OUT}/p5"
+    if [ -f "${PAPER_OUT}/p5/p5_cka_real_results.json" ]; then
+        info "Already complete — skipping (delete ${PAPER_OUT}/p5/p5_cka_real_results.json to re-run)."
+    else
+        $PY alignment/p5/p5_cka_analyze.py --out-dir "${PAPER_OUT}/p5"
+    fi
 
     elapsed
 
     step "9 / P5 validation battery (random-input, structure-scramble, procedure-off nulls)"
 
-    $PY alignment/p5/p5_validation_battery.py --out-dir "${PAPER_OUT}/p5"
+    if [ -f "${PAPER_OUT}/p5/p5_validation_battery.json" ]; then
+        info "Already complete — skipping (delete ${PAPER_OUT}/p5/p5_validation_battery.json to re-run)."
+    else
+        $PY alignment/p5/p5_validation_battery.py --out-dir "${PAPER_OUT}/p5"
+    fi
 
     elapsed
 fi
@@ -203,8 +231,12 @@ fi
 if [ "${WITH_FRONTIER}" = true ]; then
     step "10 / Procrustes alignment — including frontier models"
 
-    $PY alignment/align.py --all --same-dim-only \
-        --out "${PAPER_OUT}/prh_with_frontier.csv"
+    if [ -f "${PAPER_OUT}/prh_with_frontier.csv" ]; then
+        info "Already complete — skipping (delete ${PAPER_OUT}/prh_with_frontier.csv to re-run)."
+    else
+        $PY alignment/align.py --all --same-dim-only \
+            --out "${PAPER_OUT}/prh_with_frontier.csv"
+    fi
 
     elapsed
 fi
