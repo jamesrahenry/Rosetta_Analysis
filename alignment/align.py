@@ -78,9 +78,8 @@ import numpy as np
 import pandas as pd
 
 from rosetta_tools.alignment import align_and_score, compute_procrustes_rotation, apply_rotation, cosine_similarity
-from rosetta_tools.reporting import load_results_dir
 from rosetta_tools.viz import CONCEPT_META, CONCEPT_ORDER
-from rosetta_tools.paths import ROSETTA_RESULTS
+from rosetta_tools.paths import ROSETTA_RESULTS, ROSETTA_MODELS
 
 logging.basicConfig(
     level=logging.INFO,
@@ -98,10 +97,16 @@ CONCEPTS = list(CONCEPT_META.keys())
 # ---------------------------------------------------------------------------
 
 
+def _model_dirs():
+    """Yield model directories from ROSETTA_MODELS that have extraction results."""
+    return sorted(d for d in ROSETTA_MODELS.iterdir()
+                  if d.is_dir() and any(d.glob("caz_*.json")))
+
+
 def load_hidden_dims() -> dict[str, int]:
     """Return {model_id: hidden_dim} for all models with extraction results."""
     dims: dict[str, int] = {}
-    for d in sorted(RESULTS_ROOT.glob("xarch_*")):
+    for d in _model_dirs():
         summary = d / "run_summary.json"
         if not summary.exists():
             continue
@@ -121,7 +126,7 @@ def load_hidden_dims() -> dict[str, int]:
 def load_dom_vectors(concept: str) -> dict[str, np.ndarray]:
     """Extract peak-layer dominant vectors for a concept."""
     vectors: dict[str, np.ndarray] = {}
-    for d in sorted(RESULTS_ROOT.glob("xarch_*")):
+    for d in _model_dirs():
         checkpoint = d / f"caz_{concept}.json"
         if not checkpoint.exists():
             continue
@@ -141,7 +146,7 @@ def load_dom_vectors(concept: str) -> dict[str, np.ndarray]:
 def load_peak_activations(concept: str) -> dict[str, np.ndarray]:
     """Load peak-layer calibration activations [n_texts, hidden_dim] per model."""
     activations: dict[str, np.ndarray] = {}
-    for d in sorted(RESULTS_ROOT.glob("xarch_*")):
+    for d in _model_dirs():
         cal_path = d / f"calibration_{concept}.npy"
         summary_path = d / "run_summary.json"
         if not cal_path.exists() or not summary_path.exists():
@@ -618,9 +623,9 @@ def main():
 
     concepts = CONCEPTS if args.all else [args.concept]
 
-    dirs = sorted(RESULTS_ROOT.glob("xarch_*"))
+    dirs = _model_dirs()
     if not dirs:
-        log.error("No xarch_* result directories found. Run src/extract.py first.")
+        log.error("No model directories found in %s. Run extract.py first.", ROSETTA_MODELS)
         return
 
     hidden_dims = load_hidden_dims()
