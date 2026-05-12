@@ -240,6 +240,22 @@ if [ "${WITH_FRONTIER}" = true ]; then
     elapsed
 fi
 
+# ---------------------------------------------------------------------------
+# Step 4c — P5 validation battery (GPU — pure linear algebra, no model load)
+# ---------------------------------------------------------------------------
+step "4c / P5 validation battery — GPU-accelerated"
+info "Replaces the multi-day CPU battery with a single GPU pass."
+info "Output lands in the same location as the CPU version; CPU step 9 will skip."
+
+if [ -f "${PAPER_OUT}/p5/p5_validation_battery.json" ]; then
+    info "Already complete — skipping (delete ${PAPER_OUT}/p5/p5_validation_battery.json to re-run)."
+else
+    $PY alignment/p5/p5_validation_battery_gpu.py \
+        --out-dir "${PAPER_OUT}/p5"
+fi
+
+elapsed
+
 if [ "${GPU_ONLY}" = true ]; then
     END_UTC=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
     TOTAL_MIN=$(( ($(date +%s) - START_TS) / 60 ))
