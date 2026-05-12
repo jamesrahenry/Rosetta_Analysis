@@ -218,7 +218,7 @@ else
     if [ -f "${PAPER_OUT}/p5/p5_validation_battery.json" ]; then
         info "Already complete — skipping (delete ${PAPER_OUT}/p5/p5_validation_battery.json to re-run)."
     else
-        $PY alignment/p5/p5_validation_battery.py --out-dir "${PAPER_OUT}/p5"
+        $PY alignment/p5/p5_validation_battery.py --out-dir "${PAPER_OUT}/p5" --n-workers -1
     fi
 
     elapsed

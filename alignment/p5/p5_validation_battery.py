@@ -38,6 +38,7 @@ from __future__ import annotations
 import json
 import logging
 import sys
+import threading
 import time
 from datetime import datetime, timezone
 from itertools import permutations
@@ -64,6 +65,8 @@ CKA_WINDOW = 5  # layers around each proportional depth
 N_BOOTSTRAP = 10000
 N_DEPTH_PERMS = 1000
 RNG_SEED = 42
+# Use thin-SVD Procrustes when hidden_dim >= this; avoids O(n³) SVD on large dims.
+THIN_PROCRUSTES_DIM = 1024
 
 DEFAULT_DATA_ROOT = REPO_ROOT / "rosetta_data" / "models"
 DEFAULT_OUT_DIR = REPO_ROOT / "rosetta_data" / "results" / "p5_permutation"
@@ -77,18 +80,28 @@ SVD_FAILURES_DIR: Path | None = None  # set in main() if --save-svd-failures
 
 
 def safe_procrustes(first: np.ndarray, second: np.ndarray, *,
-                    context: dict | None = None) -> np.ndarray | None:
-    """orthogonal_procrustes(first, second) with a gesvd fallback.
+                    context: dict | None = None):
+    """Procrustes rotation with thin-SVD fast path and gesvd fallback.
 
-    Mirrors scipy's closed-form solution: SVD of first.T @ second, then U @ Vt.
-    The default LAPACK driver (gesdd) occasionally fails to converge on
-    near-rank-deficient cross-covariance matrices. When that happens we retry
-    with the slower-but-robust gesvd driver. The fallback computes the *same*
-    decomposition — no math is changed. Each fallback (or hard failure) is
-    appended to SVD_FAILURES with full forensic context.
+    For first.shape = [m, n] with n >= THIN_PROCRUSTES_DIM and m < n, uses
+    thin_procrustes() which runs two O(m²n) thin SVDs + one O(m³) SVD instead
+    of materialising the [n×n] cross-covariance matrix (O(n³) SVD). For n=8192,
+    m=480 this is ~100× faster. Returns a factored rotation tuple in that case;
+    use apply_rotation() to apply it.
 
-    Returns the rotation R, or None if both drivers fail.
+    Falls back to orthogonal_procrustes (direct, then gesvd) for small dims or
+    when the thin path fails. Appends diagnostic info to SVD_FAILURES on
+    convergence errors; thread-safe via GIL-protected list.append.
+
+    Returns the rotation R (ndarray [n,n] or factored tuple), or None on failure.
     """
+    m, n = first.shape
+    if n >= THIN_PROCRUSTES_DIM and m < n:
+        R_fac = thin_procrustes(first, second)
+        if R_fac is not None:
+            return R_fac
+        # thin path failed (degenerate input) — fall through to direct
+
     try:
         R, _ = orthogonal_procrustes(first, second)
         return R
@@ -140,6 +153,45 @@ def safe_procrustes(first: np.ndarray, second: np.ndarray, *,
 
         SVD_FAILURES.append(info)
         return R
+
+
+def thin_procrustes(A: np.ndarray, B: np.ndarray) -> tuple | None:
+    """Efficient Procrustes for wide matrices (m << n).
+
+    Finds R minimising ||A - B @ R||_F using thin SVD of A and B separately,
+    then SVD of the [m × m] middle matrix. Avoids the O(n³) cost of
+    svd(A.T @ B) for large n.
+
+    Math: A = U_a S_a Vt_a, B = U_b S_b Vt_b
+          A.T @ B = Vt_a.T @ (S_a (U_a.T U_b) S_b) @ Vt_b
+          M = S_a (U_a.T U_b) S_b  [m×m]; SVD(M) = U_m S_m Vt_m
+          R = Vt_a.T @ (U_m @ Vt_m) @ Vt_b  (not materialised)
+
+    Returns ("F", Vt_a, R_mid, Vt_b) — apply with apply_rotation().
+    Returns None on any numerical failure (caller falls back to direct path).
+    """
+    try:
+        U_a, S_a, Vt_a = _robust_svd(A, full_matrices=False)
+        U_b, S_b, Vt_b = _robust_svd(B, full_matrices=False)
+        M = (S_a[:, None] * U_a.T) @ U_b * S_b      # [m, m]
+        U_m, _, Vt_m = _robust_svd(M, full_matrices=False)
+        R_mid = U_m @ Vt_m                            # [m, m] orthogonal
+        return ("F", Vt_a, R_mid, Vt_b)
+    except Exception:
+        return None
+
+
+def apply_rotation(vecs: np.ndarray, R) -> np.ndarray:
+    """Apply rotation R to row vectors. R may be ndarray [n,n] or factored tuple.
+
+    Factored form ("F", Vt_a, R_mid, Vt_b): applies as
+        (vecs @ Vt_a.T) @ R_mid @ Vt_b
+    which costs O(m*n) per row instead of O(n²). Works for 1-D and 2-D vecs.
+    """
+    if isinstance(R, tuple):
+        _, Vt_a, R_mid, Vt_b = R
+        return (vecs @ Vt_a.T) @ R_mid @ Vt_b
+    return vecs @ R
 
 
 # ============================================================================
@@ -249,7 +301,7 @@ def build_cos_matrix(dvA: np.ndarray, dvB: np.ndarray, R: np.ndarray | None,
         for j, dj in enumerate(DEPTHS):
             lj = depth_layer(n_b, dj)
             vB = dvB[lj]
-            vB_use = vB @ R if R is not None else vB
+            vB_use = apply_rotation(vB, R) if R is not None else vB
             cm[i, j] = cosine(vA, vB_use)
     return cm
 
@@ -298,88 +350,111 @@ def stats_from_cos_matrices(rows: list[dict]) -> dict:
 # Main pipeline used by tests 2, 3, 4, baseline
 # ============================================================================
 
+def _run_one_pair_pipeline(
+    name_a: str, name_b: str,
+    store: dict,
+    label: str,
+    rotate: bool,
+    dom_vec_override,
+    concept_perm_per_model,
+) -> list[dict]:
+    """Process a single (name_a, name_b) pair for run_propdepth_pipeline.
+    Module-level so it is picklable and safe for joblib thread workers.
+    """
+    cm_a, cm_b = store[name_a], store[name_b]
+    any_c = next(iter(cm_a.values()))
+    dim = any_c["hidden_dim"]
+
+    def get(name, cm, c):
+        if dom_vec_override is not None:
+            out = dom_vec_override(name, c)
+            if out is not None:
+                return out
+        if concept_perm_per_model is not None:
+            real_c = concept_perm_per_model[name].get(c, c)
+            return cm[real_c]
+        return cm[c]
+
+    rows = []
+    for held in CONCEPTS:
+        if held not in cm_a or held not in cm_b:
+            continue
+        a_held = get(name_a, cm_a, held)
+        b_held = get(name_b, cm_b, held)
+        n_a = a_held["n_layers"]
+        n_b = b_held["n_layers"]
+        n_common = min(n_a, n_b)
+
+        if rotate:
+            fit_concepts = [c for c in CONCEPTS if c != held and c in cm_a and c in cm_b]
+            if len(fit_concepts) < 2:
+                continue
+            blocks_a, blocks_b = [], []
+            for c in fit_concepts:
+                a_c = get(name_a, cm_a, c)
+                b_c = get(name_b, cm_b, c)
+                blocks_a.append(interp_rows(a_c["dom_vecs"], n_common))
+                blocks_b.append(interp_rows(b_c["dom_vecs"], n_common))
+            A = np.vstack(blocks_a)
+            B = np.vstack(blocks_b)
+            R = safe_procrustes(B, A, context={
+                "call": "run_propdepth_pipeline",
+                "label": label, "model_a": name_a, "model_b": name_b,
+                "dim": dim, "held_concept": held,
+            })
+            if R is None:
+                continue
+        else:
+            R = None
+
+        cm_mat = build_cos_matrix(a_held["dom_vecs"], b_held["dom_vecs"], R, n_a, n_b)
+        if np.any(np.isnan(cm_mat)):
+            continue
+        rows.append({
+            "test_concept": held, "model_a": name_a, "model_b": name_b,
+            "dim": dim, "cos_matrix": cm_mat.tolist(),
+        })
+    return rows
+
+
 def run_propdepth_pipeline(
     store: dict, by_dim: dict, label: str,
     rotate: bool = True,
     dom_vec_override: callable | None = None,
     concept_perm_per_model: dict[str, dict[str, str]] | None = None,
+    n_workers: int = 1,
 ) -> list[dict]:
     """Re-runs path-3 with hooks for nulls.
 
     rotate=False → no Procrustes (R=identity).
     dom_vec_override(name, concept) → returns dom_vecs to use instead of caz JSON.
     concept_perm_per_model[name][c] → real concept whose dom_vecs go under label c.
+    n_workers: number of joblib threads (1=sequential, -1=all CPUs).
     """
-    pair_results = []
-    for dim, names in sorted(by_dim.items()):
-        if len(names) < 2:
-            continue
-        log.info("[%s] dim %d: %d models", label, dim, len(names))
-        t0 = time.time()
-        for name_a, name_b in permutations(names, 2):
-            cm_a, cm_b = store[name_a], store[name_b]
+    all_pairs = [
+        (name_a, name_b)
+        for dim, names in sorted(by_dim.items()) if len(names) >= 2
+        for name_a, name_b in permutations(names, 2)
+    ]
+    log.info("[%s] %d pairs to process (n_workers=%d)", label, len(all_pairs), n_workers)
+    t0 = time.time()
 
-            # Apply concept permutation if provided.
-            def get(name, cm, c):
-                if dom_vec_override is not None:
-                    out = dom_vec_override(name, c)
-                    if out is not None:
-                        return out
-                if concept_perm_per_model is not None:
-                    real_c = concept_perm_per_model[name].get(c, c)
-                    return cm[real_c]
-                return cm[c]
+    if n_workers == 1:
+        nested = [
+            _run_one_pair_pipeline(na, nb, store, label, rotate,
+                                   dom_vec_override, concept_perm_per_model)
+            for na, nb in all_pairs
+        ]
+    else:
+        from joblib import Parallel, delayed
+        nested = Parallel(n_jobs=n_workers, prefer="threads")(
+            delayed(_run_one_pair_pipeline)(na, nb, store, label, rotate,
+                                           dom_vec_override, concept_perm_per_model)
+            for na, nb in all_pairs
+        )
 
-            for held in CONCEPTS:
-                if held not in cm_a or held not in cm_b:
-                    continue
-
-                a_held = get(name_a, cm_a, held)
-                b_held = get(name_b, cm_b, held)
-                n_a = a_held["n_layers"]
-                n_b = b_held["n_layers"]
-                n_common = min(n_a, n_b)
-
-                # Build LOCO basis using overridden cm.
-                if rotate:
-                    fit_concepts = [c for c in CONCEPTS
-                                    if c != held and c in cm_a and c in cm_b]
-                    if len(fit_concepts) < 2:
-                        continue
-                    blocks_a, blocks_b = [], []
-                    for c in fit_concepts:
-                        a_c = get(name_a, cm_a, c)
-                        b_c = get(name_b, cm_b, c)
-                        blocks_a.append(interp_rows(a_c["dom_vecs"], n_common))
-                        blocks_b.append(interp_rows(b_c["dom_vecs"], n_common))
-                    A = np.vstack(blocks_a)
-                    B = np.vstack(blocks_b)
-                    R = safe_procrustes(B, A, context={
-                        "call": "run_propdepth_pipeline",
-                        "label": label,
-                        "model_a": name_a,
-                        "model_b": name_b,
-                        "dim": dim,
-                        "held_concept": held,
-                    })
-                    if R is None:
-                        continue
-                else:
-                    R = None
-
-                cm_mat = build_cos_matrix(a_held["dom_vecs"], b_held["dom_vecs"],
-                                          R, n_a, n_b)
-                if np.any(np.isnan(cm_mat)):
-                    continue
-                pair_results.append({
-                    "test_concept": held,
-                    "model_a": name_a,
-                    "model_b": name_b,
-                    "dim": dim,
-                    "cos_matrix": cm_mat.tolist(),
-                })
-        log.info("[%s] dim %d done in %.1fs (%d obs so far)",
-                 label, dim, time.time() - t0, len(pair_results))
+    pair_results = [row for rows in nested for row in rows]
+    log.info("[%s] done in %.1fs — %d observations", label, time.time() - t0, len(pair_results))
     return pair_results
 
 
@@ -387,54 +462,75 @@ def run_propdepth_pipeline(
 # Test 5: depth-label permutation null
 # ============================================================================
 
-def run_depth_perm_null(store: dict, by_dim: dict, n_perms: int = N_DEPTH_PERMS) -> dict:
+def _run_one_pair_depthnull(
+    name_a: str, name_b: str, store: dict, n_perms: int, pair_seed: int,
+) -> list[float]:
+    """Depth-permutation null for a single pair. Returns list of null deltas."""
+    cm_a, cm_b = store[name_a], store[name_b]
+    rng = np.random.default_rng(pair_seed)
+    K = len(DEPTHS)
+    deltas: list[float] = []
+    for held in CONCEPTS:
+        if held not in cm_a or held not in cm_b:
+            continue
+        n_a = cm_a[held]["n_layers"]
+        n_b = cm_b[held]["n_layers"]
+        n_common = min(n_a, n_b)
+        R = fit_loco_rotation(cm_a, cm_b, held, n_common)
+        if R is None:
+            continue
+        dvA = cm_a[held]["dom_vecs"]
+        dvB_rot = apply_rotation(cm_b[held]["dom_vecs"], R)
+        for _ in range(n_perms):
+            li_a = rng.choice(n_a, size=K, replace=False)
+            li_b = rng.choice(n_b, size=K, replace=False)
+            cm_mat = np.zeros((K, K))
+            for i in range(K):
+                for j in range(K):
+                    cm_mat[i, j] = cosine(dvA[li_a[i]], dvB_rot[li_b[j]])
+            if np.any(np.isnan(cm_mat)):
+                continue
+            matched = np.array([cm_mat[k, k] for k in range(K)])
+            mismatched = np.array([cm_mat[i, j] for i in range(K)
+                                   for j in range(K) if i != j])
+            deltas.append(float(np.mean(matched) - np.mean(mismatched)))
+    return deltas
+
+
+def run_depth_perm_null(store: dict, by_dim: dict, n_perms: int = N_DEPTH_PERMS,
+                        n_workers: int = 1) -> dict:
     """For each pair × concept, fit R once, then for each of N permutations
     randomly relabel which 3 layer indices in A (and in B) play the roles of
     {0.3, 0.5, 0.7}. Compute Δ_null distribution.
 
     The null preserves all data and rotation, only randomizes which layers
-    are assigned to depth labels.
+    are assigned to depth labels. n_workers enables joblib threading over pairs.
     """
-    rng = np.random.default_rng(RNG_SEED)
-    null_deltas = []
+    all_pairs = [
+        (name_a, name_b)
+        for dim, names in sorted(by_dim.items()) if len(names) >= 2
+        for name_a, name_b in permutations(names, 2)
+    ]
+    log.info("[depth-perm-null] %d pairs × %d perms (n_workers=%d)",
+             len(all_pairs), n_perms, n_workers)
 
-    for dim, names in sorted(by_dim.items()):
-        if len(names) < 2:
-            continue
-        log.info("[depth-perm-null] dim %d: %d models", dim, len(names))
-        for name_a, name_b in permutations(names, 2):
-            cm_a, cm_b = store[name_a], store[name_b]
-            for held in CONCEPTS:
-                if held not in cm_a or held not in cm_b:
-                    continue
-                n_a = cm_a[held]["n_layers"]
-                n_b = cm_b[held]["n_layers"]
-                n_common = min(n_a, n_b)
-                R = fit_loco_rotation(cm_a, cm_b, held, n_common)
-                if R is None:
-                    continue
-                dvA = cm_a[held]["dom_vecs"]
-                dvB = cm_b[held]["dom_vecs"]
-                # Pre-rotate B once.
-                dvB_rot = dvB @ R
+    # Give each pair a deterministic independent seed derived from RNG_SEED + pair index
+    # so results are reproducible regardless of worker count.
+    pair_seeds = [RNG_SEED + i for i in range(len(all_pairs))]
 
-                # For each permutation: pick K=3 random layer indices in each
-                # model, treat them as labels [0,1,2], compute Δ.
-                K = len(DEPTHS)
-                for _ in range(n_perms):
-                    li_a = rng.choice(n_a, size=K, replace=False)
-                    li_b = rng.choice(n_b, size=K, replace=False)
-                    cm_mat = np.zeros((K, K))
-                    for i in range(K):
-                        for j in range(K):
-                            cm_mat[i, j] = cosine(dvA[li_a[i]], dvB_rot[li_b[j]])
-                    if np.any(np.isnan(cm_mat)):
-                        continue
-                    matched = np.array([cm_mat[k, k] for k in range(K)])
-                    mismatched = np.array([cm_mat[i, j] for i in range(K)
-                                           for j in range(K) if i != j])
-                    null_deltas.append(float(np.mean(matched) - np.mean(mismatched)))
+    if n_workers == 1:
+        nested = [
+            _run_one_pair_depthnull(na, nb, store, n_perms, seed)
+            for (na, nb), seed in zip(all_pairs, pair_seeds)
+        ]
+    else:
+        from joblib import Parallel, delayed
+        nested = Parallel(n_jobs=n_workers, prefer="threads")(
+            delayed(_run_one_pair_depthnull)(na, nb, store, n_perms, seed)
+            for (na, nb), seed in zip(all_pairs, pair_seeds)
+        )
 
+    null_deltas = [d for deltas in nested for d in deltas]
     arr = np.array(null_deltas)
     return {
         "n_null_observations": len(null_deltas),
@@ -450,54 +546,64 @@ def run_depth_perm_null(store: dict, by_dim: dict, n_perms: int = N_DEPTH_PERMS)
 # Test 1: Windowed CKA
 # ============================================================================
 
-def run_windowed_cka(store: dict, by_dim: dict) -> list[dict]:
+def _run_one_pair_cka(name_a: str, name_b: str, store: dict) -> list[dict]:
+    """Windowed CKA for a single pair."""
+    cm_a, cm_b = store[name_a], store[name_b]
+    any_c = next(iter(cm_a.values()))
+    dim = any_c["hidden_dim"]
+    half = CKA_WINDOW // 2
+    rows = []
+    for held in CONCEPTS:
+        if held not in cm_a or held not in cm_b:
+            continue
+        dvA = cm_a[held]["dom_vecs"]
+        dvB = cm_b[held]["dom_vecs"]
+        n_a = cm_a[held]["n_layers"]
+        n_b = cm_b[held]["n_layers"]
+        cm_mat = np.zeros((len(DEPTHS), len(DEPTHS)))
+        for i, di in enumerate(DEPTHS):
+            li = depth_layer(n_a, di)
+            A_win = dvA[max(0, li - half):min(n_a, li + half + 1)]
+            for j, dj in enumerate(DEPTHS):
+                lj = depth_layer(n_b, dj)
+                B_win = dvB[max(0, lj - half):min(n_b, lj + half + 1)]
+                n_c = min(len(A_win), len(B_win))
+                cm_mat[i, j] = linear_cka(A_win[:n_c], B_win[:n_c])
+        if np.any(np.isnan(cm_mat)):
+            continue
+        rows.append({
+            "test_concept": held, "model_a": name_a, "model_b": name_b,
+            "dim": dim, "cos_matrix": cm_mat.tolist(),
+        })
+    return rows
+
+
+def run_windowed_cka(store: dict, by_dim: dict, n_workers: int = 1) -> list[dict]:
     """At each proportional depth, take a K-layer window of dom_vectors as the
     representation. Compute linear CKA between A_window(d_i) and B_window(d_j)
     for all (i, j). Build 3×3 matrix per pair × concept.
 
     No rotation — CKA is rotation-invariant by construction.
+    n_workers enables joblib threading over pairs.
     """
-    pair_results = []
-    half = CKA_WINDOW // 2
-    for dim, names in sorted(by_dim.items()):
-        if len(names) < 2:
-            continue
-        log.info("[CKA] dim %d: %d models", dim, len(names))
-        t0 = time.time()
-        for name_a, name_b in permutations(names, 2):
-            cm_a, cm_b = store[name_a], store[name_b]
-            for held in CONCEPTS:
-                if held not in cm_a or held not in cm_b:
-                    continue
-                dvA = cm_a[held]["dom_vecs"]
-                dvB = cm_b[held]["dom_vecs"]
-                n_a = cm_a[held]["n_layers"]
-                n_b = cm_b[held]["n_layers"]
+    all_pairs = [
+        (name_a, name_b)
+        for dim, names in sorted(by_dim.items()) if len(names) >= 2
+        for name_a, name_b in permutations(names, 2)
+    ]
+    log.info("[CKA] %d pairs (n_workers=%d)", len(all_pairs), n_workers)
+    t0 = time.time()
 
-                cm_mat = np.zeros((len(DEPTHS), len(DEPTHS)))
-                for i, di in enumerate(DEPTHS):
-                    li = depth_layer(n_a, di)
-                    a_lo = max(0, li - half)
-                    a_hi = min(n_a, li + half + 1)
-                    A_win = dvA[a_lo:a_hi]
-                    for j, dj in enumerate(DEPTHS):
-                        lj = depth_layer(n_b, dj)
-                        b_lo = max(0, lj - half)
-                        b_hi = min(n_b, lj + half + 1)
-                        B_win = dvB[b_lo:b_hi]
-                        # Trim to common length.
-                        n_common = min(len(A_win), len(B_win))
-                        cm_mat[i, j] = linear_cka(A_win[:n_common], B_win[:n_common])
-                if np.any(np.isnan(cm_mat)):
-                    continue
-                pair_results.append({
-                    "test_concept": held,
-                    "model_a": name_a,
-                    "model_b": name_b,
-                    "dim": dim,
-                    "cos_matrix": cm_mat.tolist(),
-                })
-        log.info("[CKA] dim %d done in %.1fs", dim, time.time() - t0)
+    if n_workers == 1:
+        nested = [_run_one_pair_cka(na, nb, store) for na, nb in all_pairs]
+    else:
+        from joblib import Parallel, delayed
+        nested = Parallel(n_jobs=n_workers, prefer="threads")(
+            delayed(_run_one_pair_cka)(na, nb, store) for na, nb in all_pairs
+        )
+
+    pair_results = [row for rows in nested for row in rows]
+    log.info("[CKA] done in %.1fs — %d observations", time.time() - t0, len(pair_results))
     return pair_results
 
 
@@ -573,6 +679,9 @@ def main():
     ap.add_argument("--out-dir", type=Path, default=DEFAULT_OUT_DIR)
     ap.add_argument("--n-seeds", type=int, default=1,
                     help="Number of random seeds for tests 2 and 3 (>1 builds null distribution)")
+    ap.add_argument("--n-workers", type=int, default=-1,
+                    help="Joblib thread workers for pair-level parallelism. "
+                         "-1=all CPUs (default), 1=sequential.")
     ap.add_argument("--out-suffix", type=str, default="",
                     help="Suffix for output filenames, e.g. '_v2'")
     ap.add_argument("--save-svd-failures", action="store_true",
@@ -588,7 +697,9 @@ def main():
         SVD_FAILURES_DIR = OUT_DIR / "svd_failures"
         SVD_FAILURES_DIR.mkdir(parents=True, exist_ok=True)
         log.info("SVD failure forensics enabled: %s", SVD_FAILURES_DIR)
-    log.info("data_root=%s  out_dir=%s  n_seeds=%d", DATA_ROOT, OUT_DIR, args.n_seeds)
+    n_workers = args.n_workers
+    log.info("data_root=%s  out_dir=%s  n_seeds=%d  n_workers=%d",
+             DATA_ROOT, OUT_DIR, args.n_seeds, n_workers)
 
     overall_t0 = time.time()
     store, by_dim = collect_store()
@@ -614,7 +725,8 @@ def main():
                  cached.get("mean_matched", float("nan")), cached.get("mean_mismatched", float("nan")))
     else:
         t0 = time.time()
-        rows = run_propdepth_pipeline(store, by_dim, "no-rot", rotate=False)
+        rows = run_propdepth_pipeline(store, by_dim, "no-rot", rotate=False,
+                                      n_workers=n_workers)
         s = stats_from_cos_matrices(rows)
         s["elapsed_seconds"] = time.time() - t0
         s["pair_results"] = rows
@@ -637,7 +749,7 @@ def main():
                  cached.get("null_max", float("nan")))
     else:
         t0 = time.time()
-        s = run_depth_perm_null(store, by_dim)
+        s = run_depth_perm_null(store, by_dim, n_workers=n_workers)
         s["elapsed_seconds"] = time.time() - t0
         results["test_5_depth_perm_null"] = s
         write_partial("test5_depth_perm_null", s)
@@ -657,7 +769,7 @@ def main():
                  cached.get("mean_matched", float("nan")), cached.get("mean_mismatched", float("nan")))
     else:
         t0 = time.time()
-        rows = run_windowed_cka(store, by_dim)
+        rows = run_windowed_cka(store, by_dim, n_workers=n_workers)
         s = stats_from_cos_matrices(rows)
         s["elapsed_seconds"] = time.time() - t0
         s["pair_results"] = rows
@@ -690,7 +802,7 @@ def main():
             t0 = time.time()
             rand_store = make_random_store(store, seed)
             rows = run_propdepth_pipeline(rand_store, by_dim, f"rand-vec-s{seed}",
-                                          rotate=True)
+                                          rotate=True, n_workers=n_workers)
             s = stats_from_cos_matrices(rows)
             s["seed"] = seed
             s["elapsed_seconds"] = time.time() - t0
@@ -733,8 +845,8 @@ def main():
             t0 = time.time()
             cp = make_concept_perm(store, seed)
             rows = run_propdepth_pipeline(store, by_dim, f"concept-shuf-s{seed}",
-                                          rotate=True,
-                                          concept_perm_per_model=cp)
+                                          rotate=True, concept_perm_per_model=cp,
+                                          n_workers=n_workers)
             s = stats_from_cos_matrices(rows)
             s["seed"] = seed
             s["elapsed_seconds"] = time.time() - t0
