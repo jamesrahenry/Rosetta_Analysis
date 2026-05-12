@@ -527,20 +527,22 @@ def format_report(records):
         w(f"No comparisons with handoff KL > 1.0.")
         w(f"")
 
-    # ── F. Cascade Analysis ─────────────────────────────────────────────
+    # ── F. Cascade Analysis (only if --cascade data present) ────────────
     cas = section_f_cascade(records)
-    w(f"## F. Cascade Analysis")
-    w(f"")
-    w(f"| Metric | Count |")
-    w(f"|--------|-------|")
-    w(f"| Comparisons with dependent chains | {cas['dependent']} |")
-    w(f"| Comparisons all-independent | {cas['independent']} |")
-    w(f"| Error/missing cascade data | {cas['error_or_missing']} |")
-    w(f"| Models with at least one chain | {len(cas['models_with_dependent'])} |")
-    w(f"| Models with only independent nodes | {len(cas['models_all_independent'] - cas['models_with_dependent'])} |")
-    w(f"| Total downstream propagation checks | {cas['propagation_total']} |")
-    w(f"| Propagation suppressed | {cas['propagation_suppressed_count']} ({cas['propagation_suppressed_count']/cas['propagation_total']*100:.1f}% of checks) |" if cas['propagation_total'] > 0 else f"| Propagation suppressed | 0 |")
-    w(f"")
+    has_cascade = cas["dependent"] + cas["independent"] > 0
+    if has_cascade:
+        w(f"## F. Cascade Analysis")
+        w(f"")
+        w(f"| Metric | Count |")
+        w(f"|--------|-------|")
+        w(f"| Comparisons with dependent chains | {cas['dependent']} |")
+        w(f"| Comparisons all-independent | {cas['independent']} |")
+        w(f"| Error/missing cascade data | {cas['error_or_missing']} |")
+        w(f"| Models with at least one chain | {len(cas['models_with_dependent'])} |")
+        w(f"| Models with only independent nodes | {len(cas['models_all_independent'] - cas['models_with_dependent'])} |")
+        w(f"| Total downstream propagation checks | {cas['propagation_total']} |")
+        w(f"| Propagation suppressed | {cas['propagation_suppressed_count']} ({cas['propagation_suppressed_count']/cas['propagation_total']*100:.1f}% of checks) |" if cas['propagation_total'] > 0 else f"| Propagation suppressed | 0 |")
+        w(f"")
 
     return "\n".join(lines)
 
