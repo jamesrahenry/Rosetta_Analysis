@@ -759,7 +759,7 @@ def run_model(
                      peak.get("final_retained_pct", -1),
                      peak.get("final_sep_reduction", -1))
             log.info("  Δ retained: %.1f pp (%s)",
-                     diff, "HANDOFF WINS" if diff > 0 else "PEAK WINS" if diff < 0 else "TIE")
+                     diff, "GEM MORE PRECISE" if diff > 0 else "PEAK MORE PRECISE" if diff < 0 else "TIE")
 
         # Cascade mode
         if args.cascade:
@@ -821,15 +821,15 @@ def run_model(
         print(f"\n{'='*72}")
         print(f"COMPARISON SUMMARY: {model_id}")
         print(f"{'='*72}")
-        print(f"{'Concept':<18} {'Handoff':>10} {'Peak':>10} {'Δ (pp)':>10} {'Winner':>12}")
-        print(f"{'-'*72}")
+        print(f"{'Concept':<18} {'Handoff':>10} {'Peak':>10} {'Δ (pp)':>10} {'More precise':>14}")
+        print(f"{'-'*74}")
         for r in all_results:
             comp = r.get("comparison", {})
             h = comp.get("handoff_retained_pct", -1)
             p = comp.get("peak_retained_pct", -1)
             d = comp.get("retained_diff_pp", 0)
-            winner = "HANDOFF" if d > 0 else "PEAK" if d < 0 else "TIE"
-            print(f"  {r['concept']:<16} {h:>8.1f}%  {p:>8.1f}%  {d:>+8.1f}  {winner:>10}")
+            label = "GEM" if d > 0 else "PEAK" if d < 0 else "TIE"
+            print(f"  {r['concept']:<16} {h:>8.1f}%  {p:>8.1f}%  {d:>+8.1f}  {label:>12}")
         print()
 
     log.info("Done: %s  (%.1fs total)", model_id, total_elapsed)

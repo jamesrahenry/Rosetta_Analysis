@@ -156,7 +156,7 @@ def load_all_results():
             "handoff_retained": comp.get("handoff_retained_pct"),
             "peak_retained": comp.get("peak_retained_pct"),
             "diff_pp": comp.get("retained_diff_pp"),
-            "handoff_better": comp.get("handoff_better"),
+            "handoff_more_precise": comp.get("handoff_better"),
             "handoff_kl": comp.get("handoff_kl"),
             "peak_kl": comp.get("peak_kl"),
             "width": width,
@@ -221,8 +221,8 @@ def section_a_per_model(records):
     for mid in sorted(by_model, key=lambda m: (get_family(m), PARAM_LOOKUP.get(m, 99), m)):
         recs = by_model[mid]
         n = len(recs)
-        hw = sum(1 for r in recs if r["handoff_better"])
-        pw = n - hw
+        n_precise = sum(1 for r in recs if r["handoff_more_precise"])
+        n_peak = n - n_precise
         mh = mean([r["handoff_retained"] for r in recs])
         mp = mean([r["peak_retained"] for r in recs])
         md = mean([r["diff_pp"] for r in recs])
@@ -232,8 +232,8 @@ def section_a_per_model(records):
             "family": get_family(mid),
             "params": PARAM_LOOKUP.get(mid, "?"),
             "n": n,
-            "hw": hw,
-            "pw": pw,
+            "n_precise": n_precise,
+            "n_peak": n_peak,
             "mh": mh,
             "mp": mp,
             "md": md,
@@ -254,7 +254,7 @@ def section_b_family(records):
         if not recs:
             continue
         n = len(recs)
-        hw = sum(1 for r in recs if r["handoff_better"])
+        n_precise = sum(1 for r in recs if r["handoff_more_precise"])
         md = mean([r["diff_pp"] for r in recs])
         mh = mean([r["handoff_retained"] for r in recs])
         mp = mean([r["peak_retained"] for r in recs])
@@ -263,8 +263,8 @@ def section_b_family(records):
             "family": fam,
             "n_models": n_models,
             "n_comparisons": n,
-            "handoff_wins": hw,
-            "win_rate": hw / n * 100 if n else 0,
+            "n_precise": n_precise,
+            "improvement_rate": n_precise / n * 100 if n else 0,
             "mean_diff": md,
             "mean_handoff": mh,
             "mean_peak": mp,
@@ -287,14 +287,14 @@ def section_c_scale(records):
         for mid in sorted(models, key=lambda m: PARAM_LOOKUP.get(m, 99)):
             recs = models[mid]
             n = len(recs)
-            hw = sum(1 for r in recs if r["handoff_better"])
+            n_precise = sum(1 for r in recs if r["handoff_more_precise"])
             md = mean([r["diff_pp"] for r in recs])
             model_rows.append({
                 "model": short_name(mid),
                 "params_b": PARAM_LOOKUP.get(mid, "?"),
                 "n": n,
-                "hw": hw,
-                "win_rate": hw / n * 100 if n else 0,
+                "n_precise": n_precise,
+                "improvement_rate": n_precise / n * 100 if n else 0,
                 "mean_diff": md,
             })
         results[sf] = model_rows
@@ -318,10 +318,10 @@ def section_d_base_instruct(records):
 
             def stats(recs):
                 n = len(recs)
-                hw = sum(1 for r in recs if r["handoff_better"])
+                n_precise = sum(1 for r in recs if r["handoff_more_precise"])
                 md = mean([r["diff_pp"] for r in recs])
                 mkl = mean([r["handoff_kl"] for r in recs])
-                return {"n": n, "hw": hw, "wr": hw / n * 100 if n else 0, "md": md, "mkl": mkl}
+                return {"n": n, "n_precise": n_precise, "ir": n_precise / n * 100 if n else 0, "md": md, "mkl": mkl}
 
             pairs.append({
                 "base": short_name(base_mid),
@@ -344,7 +344,7 @@ def section_e_kl_dissociation(records):
                 "handoff_kl": kl,
                 "peak_kl": r.get("peak_kl"),
                 "handoff_retained": r["handoff_retained"],
-                "handoff_better": r["handoff_better"],
+                "handoff_more_precise": r["handoff_more_precise"],
             })
     flagged.sort(key=lambda x: -x["handoff_kl"])
     return flagged
@@ -386,14 +386,14 @@ def section_f_cascade(records):
 def section_g_overall(records):
     """Overall statistics."""
     n = len(records)
-    hw = sum(1 for r in records if r["handoff_better"])
-    pw = n - hw
+    n_precise = sum(1 for r in records if r["handoff_more_precise"])
+    n_peak = n - n_precise
     diffs = [r["diff_pp"] for r in records]
     md = mean(diffs)
     med_d = median(diffs)
     mkl_h = mean([r["handoff_kl"] for r in records])
     mkl_p = mean([r["peak_kl"] for r in records])
-    sign_p = sign_test_pvalue(hw, n)
+    sign_p = sign_test_pvalue(n_precise, n)
     wilcox_stat, wilcox_p = wilcoxon_pvalue(diffs)
 
     # Amplification cases: handoff_retained > 150% (ablation increases separation)
@@ -404,7 +404,7 @@ def section_g_overall(records):
     # Clean stats: exclude amplification outliers for secondary reporting
     clean = [r for r in records if r["handoff_retained"] is None or r["handoff_retained"] <= 150]
     n_c = len(clean)
-    hw_c = sum(1 for r in clean if r["handoff_better"])
+    n_precise_c = sum(1 for r in clean if r["handoff_more_precise"])
     diffs_c = [r["diff_pp"] for r in clean]
     md_c = mean(diffs_c)
     _, wilcox_p_c = wilcoxon_pvalue(diffs_c)
@@ -418,15 +418,15 @@ def section_g_overall(records):
     for concept in sorted(by_concept):
         crecs = by_concept[concept]
         cn = len(crecs)
-        chw = sum(1 for r in crecs if r["handoff_better"])
+        cn_precise = sum(1 for r in crecs if r["handoff_more_precise"])
         cmd = mean([r["diff_pp"] for r in crecs])
-        concept_stats[concept] = {"n": cn, "hw": chw, "wr": chw / cn * 100 if cn else 0, "md": cmd}
+        concept_stats[concept] = {"n": cn, "n_precise": cn_precise, "improvement_rate": cn_precise / cn * 100 if cn else 0, "md": cmd}
 
     return {
         "n": n,
-        "handoff_wins": hw,
-        "peak_wins": pw,
-        "win_rate": hw / n * 100 if n else 0,
+        "n_handoff_more_precise": n_precise,
+        "n_peak_more_precise": n_peak,
+        "improvement_rate": n_precise / n * 100 if n else 0,
         "mean_diff": md,
         "median_diff": med_d,
         "mean_handoff_kl": mkl_h,
@@ -437,8 +437,8 @@ def section_g_overall(records):
         "n_amplification": n_amp,
         "amplification_models": amp_models,
         "clean_n": n_c,
-        "clean_handoff_wins": hw_c,
-        "clean_win_rate": hw_c / n_c * 100 if n_c else 0,
+        "clean_n_precise": n_precise_c,
+        "clean_improvement_rate": n_precise_c / n_c * 100 if n_c else 0,
         "clean_mean_diff": md_c,
         "clean_wilcoxon_p": wilcox_p_c,
         "concept_stats": concept_stats,
@@ -469,8 +469,8 @@ def format_report(records):
     w(f"| Metric | Full corpus | Excl. amplification{' (' + str(n_amp) + ' cases)' if n_amp else ''} |")
     w(f"|--------|-------------|----------------------|")
     w(f"| Total comparisons | {overall['n']} | {overall['clean_n']} |")
-    w(f"| Handoff wins | {overall['handoff_wins']} ({overall['win_rate']:.1f}%) | {overall['clean_handoff_wins']} ({overall['clean_win_rate']:.1f}%) |")
-    w(f"| Peak wins | {overall['peak_wins']} ({100 - overall['win_rate']:.1f}%) | {overall['clean_n'] - overall['clean_handoff_wins']} ({100 - overall['clean_win_rate']:.1f}%) |")
+    w(f"| GEM more precise | {overall['n_handoff_more_precise']} ({overall['improvement_rate']:.1f}%) | {overall['clean_n_precise']} ({overall['clean_improvement_rate']:.1f}%) |")
+    w(f"| Peak more precise | {overall['n_peak_more_precise']} ({100 - overall['improvement_rate']:.1f}%) | {overall['clean_n'] - overall['clean_n_precise']} ({100 - overall['clean_improvement_rate']:.1f}%) |")
     w(f"| Mean diff (pp) | {overall['mean_diff']:+.2f} | {overall['clean_mean_diff']:+.2f} |")
     w(f"| Median diff (pp) | {overall['median_diff']:+.2f} | — |")
     w(f"| Mean handoff KL | {overall['mean_handoff_kl']:.4f} | — |")
@@ -481,36 +481,36 @@ def format_report(records):
     if n_amp:
         w(f"**Amplification note**: {n_amp} comparisons where handoff ablation *increases* concept separation (H-retained >150%).{amp_note} These are documented architectural anomalies (very shallow models where the settled direction is not yet discriminative at the final layer). Both full-corpus and clean statistics are reported.")
         w(f"")
-    w(f"**Interpretation**: Positive diff = handoff ablation suppresses concept separation more than peak ablation (handoff targets the mechanistically relevant zone).")
+    w(f"**Interpretation**: Positive diff = GEM (handoff) probe is more precise than the peak probe; negative diff = peak probe is more precise. GEM is preferred when positive.")
     w(f"")
 
     w(f"### Per-concept breakdown")
     w(f"")
-    w(f"| Concept | N | Handoff wins | Win rate | Mean diff (pp) |")
-    w(f"|---------|---|-------------|----------|----------------|")
+    w(f"| Concept | N | GEM more precise | Improvement rate | Mean diff (pp) |")
+    w(f"|---------|---|-----------------|------------------|----------------|")
     for concept, cs in sorted(overall["concept_stats"].items()):
-        w(f"| {concept} | {cs['n']} | {cs['hw']}/{cs['n']} | {cs['wr']:.1f}% | {cs['md']:+.2f} |")
+        w(f"| {concept} | {cs['n']} | {cs['n_precise']}/{cs['n']} | {cs['improvement_rate']:.1f}% | {cs['md']:+.2f} |")
     w(f"")
 
     # ── A. Per-model summary ────────────────────────────────────────────
     rows_a = section_a_per_model(records)
     w(f"## A. Per-Model Summary")
     w(f"")
-    w(f"| Model | Family | Params | N | H-wins | P-wins | Mean H-ret% | Mean P-ret% | Mean diff(pp) | Mean H-KL |")
-    w(f"|-------|--------|--------|---|--------|--------|-------------|-------------|---------------|-----------|")
+    w(f"| Model | Family | Params | N | GEM precise | Peak precise | Mean H-ret% | Mean P-ret% | Mean diff(pp) | Mean H-KL |")
+    w(f"|-------|--------|--------|---|-------------|--------------|-------------|-------------|---------------|-----------|")
     for r in rows_a:
         params_str = f"{r['params']:.3f}B" if isinstance(r['params'], float) else str(r['params'])
-        w(f"| {r['model']} | {r['family']} | {params_str} | {r['n']} | {r['hw']} | {r['pw']} | {r['mh']:.1f} | {r['mp']:.1f} | {r['md']:+.2f} | {r['mkl']:.4f} |")
+        w(f"| {r['model']} | {r['family']} | {params_str} | {r['n']} | {r['n_precise']} | {r['n_peak']} | {r['mh']:.1f} | {r['mp']:.1f} | {r['md']:+.2f} | {r['mkl']:.4f} |")
     w(f"")
 
     # ── B. Architecture family ──────────────────────────────────────────
     rows_b = section_b_family(records)
     w(f"## B. Architecture Family Breakdown")
     w(f"")
-    w(f"| Family | Models | Comparisons | Handoff wins | Win rate | Mean diff(pp) | Mean H-ret% | Mean P-ret% |")
-    w(f"|--------|--------|-------------|-------------|----------|---------------|-------------|-------------|")
+    w(f"| Family | Models | Comparisons | GEM more precise | Improvement rate | Mean diff(pp) | Mean H-ret% | Mean P-ret% |")
+    w(f"|--------|--------|-------------|-----------------|-----------------|---------------|-------------|-------------|")
     for r in rows_b:
-        w(f"| {r['family']} | {r['n_models']} | {r['n_comparisons']} | {r['handoff_wins']} | {r['win_rate']:.1f}% | {r['mean_diff']:+.2f} | {r['mean_handoff']:.1f} | {r['mean_peak']:.1f} |")
+        w(f"| {r['family']} | {r['n_models']} | {r['n_comparisons']} | {r['n_precise']} | {r['improvement_rate']:.1f}% | {r['mean_diff']:+.2f} | {r['mean_handoff']:.1f} | {r['mean_peak']:.1f} |")
     w(f"")
 
     # ── C. Scale effects ────────────────────────────────────────────────
@@ -522,35 +522,35 @@ def format_report(records):
             continue
         w(f"### {sf}")
         w(f"")
-        w(f"| Model | Params | N | H-wins | Win rate | Mean diff(pp) |")
-        w(f"|-------|--------|---|--------|----------|---------------|")
+        w(f"| Model | Params | N | GEM precise | Improvement rate | Mean diff(pp) |")
+        w(f"|-------|--------|---|-------------|-----------------|---------------|")
         for r in scale_data[sf]:
             params_str = f"{r['params_b']:.3f}B" if isinstance(r['params_b'], float) else str(r['params_b'])
-            w(f"| {r['model']} | {params_str} | {r['n']} | {r['hw']} | {r['win_rate']:.0f}% | {r['mean_diff']:+.2f} |")
+            w(f"| {r['model']} | {params_str} | {r['n']} | {r['n_precise']} | {r['improvement_rate']:.0f}% | {r['mean_diff']:+.2f} |")
         w(f"")
 
     # ── D. Base vs Instruct ─────────────────────────────────────────────
     pairs_d = section_d_base_instruct(records)
     w(f"## D. Base vs Instruct Comparison")
     w(f"")
-    w(f"| Base | Instruct | Base H-WR | Inst H-WR | Base diff(pp) | Inst diff(pp) | Base H-KL | Inst H-KL |")
-    w(f"|------|----------|-----------|-----------|---------------|---------------|-----------|-----------|")
+    w(f"| Base | Instruct | Base improv. rate | Inst improv. rate | Base diff(pp) | Inst diff(pp) | Base H-KL | Inst H-KL |")
+    w(f"|------|----------|-----------------|------------------|---------------|---------------|-----------|-----------|")
     for p in pairs_d:
         bs = p["base_stats"]
         ist = p["inst_stats"]
-        w(f"| {p['base']} | {p['instruct']} | {bs['wr']:.0f}% | {ist['wr']:.0f}% | {bs['md']:+.2f} | {ist['md']:+.2f} | {bs['mkl']:.4f} | {ist['mkl']:.4f} |")
+        w(f"| {p['base']} | {p['instruct']} | {bs['ir']:.0f}% | {ist['ir']:.0f}% | {bs['md']:+.2f} | {ist['md']:+.2f} | {bs['mkl']:.4f} | {ist['mkl']:.4f} |")
     w(f"")
 
     # Summary stats for base vs instruct
     base_only = [r for r in records if not r["is_instruct"]]
     inst_only = [r for r in records if r["is_instruct"]]
     if inst_only:
-        base_wr = sum(1 for r in base_only if r["handoff_better"]) / len(base_only) * 100 if base_only else 0
-        inst_wr = sum(1 for r in inst_only if r["handoff_better"]) / len(inst_only) * 100 if inst_only else 0
+        base_ir = sum(1 for r in base_only if r["handoff_more_precise"]) / len(base_only) * 100 if base_only else 0
+        inst_ir = sum(1 for r in inst_only if r["handoff_more_precise"]) / len(inst_only) * 100 if inst_only else 0
         base_md = mean([r["diff_pp"] for r in base_only])
         inst_md = mean([r["diff_pp"] for r in inst_only])
-        w(f"**Aggregate**: Base models ({len(base_only)} comparisons): {base_wr:.1f}% handoff-win, mean diff {base_md:+.2f}pp")
-        w(f"**Aggregate**: Instruct models ({len(inst_only)} comparisons): {inst_wr:.1f}% handoff-win, mean diff {inst_md:+.2f}pp")
+        w(f"**Aggregate**: Base models ({len(base_only)} comparisons): {base_ir:.1f}% GEM more precise, mean diff {base_md:+.2f}pp")
+        w(f"**Aggregate**: Instruct models ({len(inst_only)} comparisons): {inst_ir:.1f}% GEM more precise, mean diff {inst_md:+.2f}pp")
         w(f"")
 
     # ── E. KL Dissociation ──────────────────────────────────────────────
@@ -560,10 +560,10 @@ def format_report(records):
     if flagged_e:
         w(f"{len(flagged_e)} comparisons flagged (prediction damage without geometric suppression)")
         w(f"")
-        w(f"| Model | Concept | Handoff KL | Peak KL | H-retained% | Handoff better? |")
-        w(f"|-------|---------|-----------|---------|-------------|-----------------|")
+        w(f"| Model | Concept | Handoff KL | Peak KL | H-retained% | GEM more precise? |")
+        w(f"|-------|---------|-----------|---------|-------------|-------------------|")
         for r in flagged_e:
-            hb = "Yes" if r["handoff_better"] else "No"
+            hb = "Yes" if r["handoff_more_precise"] else "No"
             pk = f"{r['peak_kl']:.4f}" if r["peak_kl"] is not None else "N/A"
             w(f"| {r['model']} | {r['concept']} | {r['handoff_kl']:.4f} | {pk} | {r['handoff_retained']:.1f} | {hb} |")
         w(f"")
