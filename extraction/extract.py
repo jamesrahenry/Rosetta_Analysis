@@ -88,6 +88,7 @@ PRH_CLUSTER_C      = models_by_cluster("C")
 PRH_CLUSTER_D      = models_by_cluster("D")
 PRH_CLUSTER_E      = models_by_cluster("E")
 PRH_CLUSTER_G      = models_by_cluster("G")
+PRH_CLUSTER_H      = models_by_cluster("H")
 PRH_FRONTIER_MODELS = models_by_cluster("F", include_disabled=True)
 PRH_SCALE_LADDER   = models_by_cluster("scale")
 
@@ -718,6 +719,7 @@ _PRH_CLUSTER_MAP = {
     "E": PRH_CLUSTER_E,
     "F": PRH_FRONTIER_MODELS,
     "G": PRH_CLUSTER_G,
+    "H": PRH_CLUSTER_H,
     "scale": PRH_SCALE_LADDER,
 }
 
