@@ -64,7 +64,7 @@ issues: list[tuple[str, str]] = []   # (severity, message)
 
 
 def slug(mid: str) -> str:
-    return mid.replace("/", "_").replace("-", "_").replace(".", "_")
+    return mid.replace("/", "_").replace("-", "_")
 
 
 def check_model_caz(mid: str, concepts: list[str], n_expected: int,
