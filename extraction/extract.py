@@ -371,8 +371,8 @@ def extract_concept(concept, model, tokenizer, device, n_pairs, batch_size, out_
         "model_id": model_id,
         "concept": concept,
         "n_pairs": len(pairs),
-        "hidden_dim": model.config.hidden_size,
-        "n_layers": model.config.num_hidden_layers,
+        "hidden_dim": getattr(model.config, "text_config", model.config).hidden_size,
+        "n_layers": getattr(model.config, "text_config", model.config).num_hidden_layers,
         "token_pos": -1,
         "extraction_seconds": round(elapsed, 1),
         "layer_data": layer_data,
@@ -391,7 +391,7 @@ def extract_concept(concept, model, tokenizer, device, n_pairs, batch_size, out_
     np.save(all_cal_path, all_layer_cal)
 
     # Rich provenance metadata — one JSON per concept covers both npy files.
-    cfg = model.config
+    cfg = getattr(model.config, "text_config", model.config)
     attn = "mha"
     kv_heads = getattr(cfg, "num_key_value_heads", None)
     n_heads  = getattr(cfg, "num_attention_heads", None)
