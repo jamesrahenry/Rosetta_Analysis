@@ -43,7 +43,7 @@ matplotlib.use("Agg")
 # Reuse the existing infrastructure
 from rosetta_tools.reporting import load_results_dir
 from rosetta_tools.caz import find_caz_boundary, LayerMetrics
-from rosetta_tools.viz import CONCEPT_META, CONCEPT_ORDER, TYPE_COLORS
+from rosetta_tools.viz_style import CONCEPT_META, CONCEPT_ORDER, TYPE_COLORS
 from rosetta_tools.paths import ROSETTA_RESULTS
 
 logging.basicConfig(

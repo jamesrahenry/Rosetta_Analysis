@@ -78,7 +78,7 @@ import numpy as np
 import pandas as pd
 
 from rosetta_tools.alignment import align_and_score, compute_procrustes_rotation, apply_rotation, cosine_similarity
-from rosetta_tools.viz import CONCEPT_META, CONCEPT_ORDER
+from rosetta_tools.viz_style import CONCEPT_META, CONCEPT_ORDER
 from rosetta_tools.paths import ROSETTA_RESULTS, ROSETTA_MODELS
 
 logging.basicConfig(

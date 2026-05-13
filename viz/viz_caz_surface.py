@@ -33,7 +33,7 @@ import logging
 from pathlib import Path
 
 import numpy as np
-from rosetta_tools.viz import CONCEPT_META as _BASE_META
+from rosetta_tools.viz_style import CONCEPT_META as _BASE_META
 from viz_style import concept_color
 
 log = logging.getLogger(__name__)

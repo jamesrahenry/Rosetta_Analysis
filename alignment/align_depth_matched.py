@@ -37,7 +37,7 @@ from scipy.stats import mannwhitneyu
 
 from rosetta_tools.alignment import align_and_score, cosine_similarity
 from rosetta_tools.caz import find_caz_regions, LayerMetrics
-from rosetta_tools.viz import CONCEPT_META
+from rosetta_tools.viz_style import CONCEPT_META
 from rosetta_tools.paths import ROSETTA_RESULTS
 
 logging.basicConfig(

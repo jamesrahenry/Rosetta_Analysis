@@ -24,7 +24,7 @@ from matplotlib.patches import FancyArrowPatch
 
 matplotlib.use("Agg")
 from rosetta_tools.caz import LayerMetrics, find_caz_regions
-from rosetta_tools.viz import CONCEPT_META
+from rosetta_tools.viz_style import CONCEPT_META
 from viz_style import concept_color
 
 RESULTS_DIR = Path(__file__).resolve().parents[1] / "results"
