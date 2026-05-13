@@ -203,10 +203,15 @@ def analyze_concept(
                 continue
 
             if use_procrustes and src in activations and tgt in activations:
-                result = align_and_score(
-                    vectors[src], vectors[tgt],
-                    activations[src], activations[tgt],
-                )
+                try:
+                    result = align_and_score(
+                        vectors[src], vectors[tgt],
+                        activations[src], activations[tgt],
+                    )
+                except Exception as e:
+                    log.warning("SVD failed for %s × %s (%s) — skipping pair",
+                                src.split("/")[-1], tgt.split("/")[-1], e)
+                    continue
             else:
                 raw = cosine_similarity(vectors[src], vectors[tgt]) if is_same_dim else float("nan")
                 result = {"raw_cosine": raw, "aligned_cosine": raw,
