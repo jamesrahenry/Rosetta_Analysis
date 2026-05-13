@@ -16,13 +16,27 @@ Method B (runs when calibration_alllayer_*.npy present):
     Loads full [n_layers, 500, hidden_dim] calibration activations.
     Fits per-concept Procrustes at every layer using 500 texts.
     Proper methodology matching the primary PRH analysis.
-    Download first:
+    Download first (768-dim cluster, ~0.6GB):
         hf download james-ra-henry/Rosetta-Activations \\
             --repo-type dataset --local-dir ~/rosetta_data/models/ \\
-            --include "models/EleutherAI_pythia_160m/*" \\
-            --include "models/EleutherAI_gpt_neo_125m/*" \\
-            --include "models/openai_community_gpt2/*" \\
-            --include "models/facebook_opt_125m/*"
+            --include "models/EleutherAI_pythia_160m/calibration_alllayer_*" \\
+            --include "models/EleutherAI_gpt_neo_125m/calibration_alllayer_*" \\
+            --include "models/openai_community_gpt2/calibration_alllayer_*" \\
+            --include "models/facebook_opt_125m/calibration_alllayer_*"
+
+    Download for 4096-dim cluster (~18GB, 4 families × 6 cross-family pairs):
+        hf download james-ra-henry/Rosetta-Activations \\
+            --repo-type dataset --local-dir ~/rosetta_data/models/ \\
+            --include "models/EleutherAI_pythia_6.9b/calibration_alllayer_*" \\
+            --include "models/facebook_opt_6.7b/calibration_alllayer_*" \\
+            --include "models/meta_llama_Llama_3.1_8B/calibration_alllayer_*" \\
+            --include "models/mistralai_Mistral_7B_v0.3/calibration_alllayer_*"
+
+    Cleanup after run (alllayer files are large, delete when done):
+        rm ~/rosetta_data/models/EleutherAI_pythia_6.9b/calibration_alllayer_*.npy
+        rm ~/rosetta_data/models/facebook_opt_6.7b/calibration_alllayer_*.npy
+        rm ~/rosetta_data/models/meta_llama_Llama_3.1_8B/calibration_alllayer_*.npy
+        rm ~/rosetta_data/models/mistralai_Mistral_7B_v0.3/calibration_alllayer_*.npy
 
 Output:
     ~/rosetta_data/results/PRH/peak_vs_nonpeak_A.json
@@ -81,8 +95,46 @@ def cosine(a: np.ndarray, b: np.ndarray) -> float:
     return float(np.dot(a, b) / denom) if denom > 1e-10 else 0.0
 
 
+def fit_R_factors(A: np.ndarray, B: np.ndarray):
+    """
+    Orthogonal Procrustes: return factored form of R = Vt_a.T @ (U_k @ Vt_k) @ Vt_b
+    so that callers can apply it without materializing the full [p, p] rotation.
+
+    Uses thin SVD when n << p to avoid O(p^3) cost. For [17, 4096] or [500, 4096]
+    inputs, this reduces per-call cost from O(p^3)=O(4096^3) to O(n^2 * p).
+
+    Apply to vector v: apply_R(factors, v) → rotated [p] vector.
+    """
+    A = A - A.mean(0)
+    B = B - B.mean(0)
+    n, p = A.shape
+    if n >= p:
+        # Square or overdetermined: standard full SVD is fine
+        R, _ = orthogonal_procrustes(A, B)
+        return ("full", R)
+    # n << p: thin SVD trick — O(n^2 * p) instead of O(p^3)
+    U_a, s_a, Vt_a = np.linalg.svd(A, full_matrices=False)  # [n,n], [n], [n,p]
+    U_b, s_b, Vt_b = np.linalg.svd(B, full_matrices=False)  # [n,n], [n], [n,p]
+    K = (U_a * s_a).T @ (U_b * s_b)                          # [n,n]
+    U_k, _, Vt_k = np.linalg.svd(K, full_matrices=True)      # [n,n]
+    return ("factored", Vt_a, U_k, Vt_k, Vt_b)
+
+
+def apply_R(factors, v: np.ndarray) -> np.ndarray:
+    """Apply rotation factors to a vector v without materializing [p, p] matrix."""
+    if factors[0] == "full":
+        return v @ factors[1]
+    # factors = ("factored", Vt_a, U_k, Vt_k, Vt_b)
+    _, Vt_a, U_k, Vt_k, Vt_b = factors
+    t = v @ Vt_a.T          # [p] → [n]
+    t = t @ U_k             # [n]
+    t = t @ Vt_k            # [n]
+    return t @ Vt_b         # [n] → [p]
+
+
 def fit_R(A: np.ndarray, B: np.ndarray) -> np.ndarray:
-    """Orthogonal Procrustes: find R s.t. A @ R ≈ B (both centered)."""
+    """Orthogonal Procrustes: find R s.t. A @ R ≈ B (both centered).
+    Prefer fit_R_factors + apply_R for large p to avoid O(p^3) SVD cost."""
     A = A - A.mean(0)
     B = B - B.mean(0)
     R, _ = orthogonal_procrustes(A, B)
@@ -191,7 +243,7 @@ def run_method_a(
             try:
                 src_stack = np.stack([src_caz[c]["dom_vectors"][layer_idx] for c in valid])
                 tgt_stack = np.stack([tgt_caz[c]["dom_vectors"][layer_idx] for c in valid])
-                R = fit_R(src_stack, tgt_stack)
+                factors = fit_R_factors(src_stack, tgt_stack)
             except Exception as e:
                 log.debug("Procrustes failed at layer %d for %s × %s: %s",
                           layer_idx, src_mid.split("/")[-1], tgt_mid.split("/")[-1], e)
@@ -200,7 +252,7 @@ def run_method_a(
             for c in valid:
                 src_v = src_caz[c]["dom_vectors"][layer_idx]
                 tgt_v = tgt_caz[c]["dom_vectors"][layer_idx]
-                aligned_v = src_v @ R
+                aligned_v = apply_R(factors, src_v)
                 cos = cosine(aligned_v, tgt_v)
 
                 src_peak = src_caz[c]["peak_layer"]
@@ -238,10 +290,15 @@ def run_method_a(
 
 def run_method_b(
     pairs: list[tuple[str, Path, str, Path]],
+    n_subsample: int | None = None,
 ) -> list[dict]:
     """
     For each pair and concept where alllayer .npy files exist:
-    fit Procrustes at each layer using 500-text calibration activations.
+    fit Procrustes at each layer using calibration activations.
+
+    n_subsample: subsample texts per layer (None = use all). For large hidden_dim
+    (>1000), SVD of the full [500, p] matrix is slow; n_subsample=50 is ~40x
+    faster with negligible loss for relative layer comparisons.
     """
     rows = []
     for src_mid, src_dir, tgt_mid, tgt_dir in pairs:
@@ -259,22 +316,32 @@ def run_method_b(
             n_layers = min(src_acts.shape[0], tgt_acts.shape[0],
                            len(src_caz["layers"]), len(tgt_caz["layers"]))
 
-            log.info("  Method B: %s × %s — %s (%d layers)",
+            # Subsample text indices (same for all layers in this concept×pair)
+            n_texts = src_acts.shape[1]
+            if n_subsample is not None and n_subsample < n_texts:
+                rng = np.random.default_rng(seed=42)
+                idx = rng.choice(n_texts, n_subsample, replace=False)
+            else:
+                idx = slice(None)
+
+            log.info("  Method B: %s × %s — %s (%d layers, %s texts)",
                      src_mid.split("/")[-1], tgt_mid.split("/")[-1],
-                     concept, n_layers)
+                     concept, n_layers,
+                     str(n_subsample) if n_subsample else str(n_texts))
 
             for layer_idx in range(n_layers):
                 depth_pct = (layer_idx + 1) / n_layers * 100
 
                 try:
-                    R = fit_R(src_acts[layer_idx], tgt_acts[layer_idx])
+                    factors = fit_R_factors(src_acts[layer_idx][idx],
+                                            tgt_acts[layer_idx][idx])
                 except Exception as e:
                     log.debug("SVD failed at layer %d: %s", layer_idx, e)
                     continue
 
                 src_v = src_caz["dom_vectors"][layer_idx]
                 tgt_v = tgt_caz["dom_vectors"][layer_idx]
-                aligned_v = src_v @ R
+                aligned_v = apply_R(factors, src_v)
                 cos = cosine(aligned_v, tgt_v)
 
                 src_peak_pct = src_caz["peak_depth_pct"]
@@ -364,10 +431,15 @@ def main() -> None:
                         help="Restrict to one specific hidden_dim (e.g. 768)")
     parser.add_argument("--dom-only", action="store_true",
                         help="Skip Method B even if alllayer files are present")
+    parser.add_argument("--n-subsample", type=int, default=None,
+                        help="Subsample N texts per layer for Method B (default: all 500). "
+                             "Use 50 for large-dim models (>1000) to keep runtime reasonable.")
     parser.add_argument("--out-dir", type=Path, default=OUT_DIR)
     args = parser.parse_args()
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
+    # Suffix output filenames with dim tag when --dim is set
+    dim_tag = f"_dim{args.dim}" if args.dim else ""
 
     # Collect same-dim pairs
     dim_groups = model_dirs_by_dim()
@@ -389,7 +461,7 @@ def main() -> None:
     # ── Method A ──────────────────────────────────────────────────────────
     log.info("\n=== Method A: DOM-vector Procrustes ===")
     rows_a = run_method_a(all_pairs)
-    out_a = args.out_dir / "peak_vs_nonpeak_A.json"
+    out_a = args.out_dir / f"peak_vs_nonpeak_A{dim_tag}.json"
     out_a.write_text(json.dumps(rows_a, indent=None, separators=(",", ":")))
     log.info("Method A: %d rows → %s", len(rows_a), out_a)
     summarize(rows_a, "Method A (DOM-vector Procrustes)")
@@ -404,9 +476,9 @@ def main() -> None:
         )
         if has_alllayer:
             log.info("\n=== Method B: Full calibration Procrustes ===")
-            rows_b = run_method_b(all_pairs)
+            rows_b = run_method_b(all_pairs, n_subsample=args.n_subsample)
             if rows_b:
-                out_b = args.out_dir / "peak_vs_nonpeak_B.json"
+                out_b = args.out_dir / f"peak_vs_nonpeak_B{dim_tag}.json"
                 out_b.write_text(json.dumps(rows_b, indent=None, separators=(",", ":")))
                 log.info("Method B: %d rows → %s", len(rows_b), out_b)
                 summarize(rows_b, "Method B (Full calibration Procrustes)")
