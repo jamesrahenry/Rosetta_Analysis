@@ -14,5 +14,3 @@ accelerate>=0.27.0
 # Alignment / stats
 scikit-learn>=1.4.0
 
-# Tracking (optional)
-mlflow>=2.10.0
