@@ -48,7 +48,26 @@ PRIMARY_MODELS = {
 
 
 def load_eec_data():
-    """Return (eecs_all, per_concept) for the 16-model primary corpus."""
+    """Return (eecs_all, per_concept) for the 16-model primary corpus.
+
+    Prefers pre-aggregated N=250 result files if present; falls back to
+    individual gem_*.json model files (N=200).
+    """
+    results_dir = Path.home() / "rosetta_data" / "results"
+    agg_files = [
+        results_dir / "gem_eec_corpus.json",
+    ]
+    if all(f.exists() for f in agg_files):
+        eecs_all = []
+        per_concept = {}
+        for agg_path in agg_files:
+            data = json.load(open(agg_path))
+            for model_data in data.values():
+                for concept, eec in model_data.get("per_concept", {}).items():
+                    eecs_all.append(eec)
+                    per_concept.setdefault(concept, []).append(eec)
+        return np.array(eecs_all), {k: np.array(v) for k, v in per_concept.items()}
+
     eecs_all = []
     per_concept = {}
 
