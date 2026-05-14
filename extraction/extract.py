@@ -332,7 +332,7 @@ def extract_layer_wise_metrics(model, tokenizer, pos_texts, neg_texts, device, b
     return metrics_dict, cal_acts, all_layer_cal
 
 
-def extract_concept(concept, model, tokenizer, device, n_pairs, batch_size, out_dir):
+def extract_concept(concept, model, tokenizer, device, n_pairs, batch_size, out_dir, split="train"):
     out_path = out_dir / f"caz_{concept}.json"
     if out_path.exists():
         try:
@@ -345,7 +345,7 @@ def extract_concept(concept, model, tokenizer, device, n_pairs, batch_size, out_
             return {"concept": concept, "skipped": True}
         log.info("  [%s] %s exists at n=%d < requested %d — re-extracting", out_dir.name, concept, existing_n, requested)
 
-    pairs = load_concept_pairs(concept, n=n_pairs or 200)
+    pairs = load_concept_pairs(concept, n=n_pairs or 200, split=split)
 
     pos_texts, neg_texts = texts_by_label(pairs)
 
@@ -415,7 +415,7 @@ def extract_concept(concept, model, tokenizer, device, n_pairs, batch_size, out_
         "extraction": {
             "n_pairs_requested": n_pairs or 200,
             "n_pairs_used": len(pairs),
-            "split": "train",
+            "split": split,
             "pooling_strategy": "last",
             "batch_size": batch_size,
             "token_pos": -1,
@@ -598,6 +598,7 @@ def run_model(model_id: str, concepts: list[str], args, device_override: str | N
             n_pairs=args.n_pairs or 200,
             batch_size=batch,
             out_dir=out_dir,
+            split=args.split,
         )
         run_summary.append(summary)
         log_concept(concept, summary)
@@ -633,7 +634,7 @@ def run_model(model_id: str, concepts: list[str], args, device_override: str | N
         "quantization": quant,
         "n_pairs_cap": args.n_pairs or 200,
         "dataset": "Rosetta_Concept_Pairs/pairs/raw/v1",
-        "split": "train",
+        "split": args.split,
         "concepts": concepts,
     }
     with (out_dir / "metadata.json").open("w") as f:
@@ -749,6 +750,8 @@ def parse_args():
                         help="With --all, also include frontier models")
     parser.add_argument("--concepts", nargs="+", default=None)
     parser.add_argument("--n-pairs", type=int, default=200)
+    parser.add_argument("--split", default="train", choices=["train", "validation", "all"],
+                        help="Pair split to use. 'all' uses every available pair (for rcp_v1 HF extraction).")
     parser.add_argument("--model-dir-suffix", type=str, default="",
                         help="Append suffix to model directory name (e.g. _p1n100 for isolated P1 storage)")
     parser.add_argument("--batch-size", type=int, default=16)
