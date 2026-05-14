@@ -371,6 +371,7 @@ def extract_concept(concept, model, tokenizer, device, n_pairs, batch_size, out_
         "model_id": model_id,
         "concept": concept,
         "n_pairs": len(pairs),
+        "split": split,
         "hidden_dim": getattr(model.config, "text_config", model.config).hidden_size,
         "n_layers": getattr(model.config, "text_config", model.config).num_hidden_layers,
         "token_pos": -1,
@@ -488,8 +489,11 @@ def run_model(model_id: str, concepts: list[str], args, device_override: str | N
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     model_slug = model_id.replace("/", "_").replace("-", "_")
+    out_root = getattr(args, "out_root", None)
     dir_suffix = getattr(args, "model_dir_suffix", None) or ""
-    if dir_suffix:
+    if out_root:
+        out_dir = Path(out_root).expanduser() / model_slug
+    elif dir_suffix:
         snapshots_root = Path.home() / "rosetta_data" / "model_snapshots"
         out_dir = snapshots_root / (model_slug + dir_suffix)
     else:
@@ -497,13 +501,19 @@ def run_model(model_id: str, concepts: list[str], args, device_override: str | N
     out_dir.mkdir(parents=True, exist_ok=True)
 
     # Skip model entirely if every concept file already exists at >= requested n_pairs.
+    # For split=all: an existing file with split=all is already at maximum — skip regardless
+    # of n_pairs (the loader clamps to available, so stored < requested is expected).
     requested_n = args.n_pairs or 200
+    current_split = getattr(args, "split", "train")
     def _needs_extraction(concept):
         p = out_dir / f"caz_{concept}.json"
         if not p.exists():
             return True
         try:
-            return json.loads(p.read_text()).get("n_pairs", 0) < requested_n
+            data = json.loads(p.read_text())
+            if current_split == "all" and data.get("split") == "all":
+                return False  # already extracted with full corpus
+            return data.get("n_pairs", 0) < requested_n
         except (json.JSONDecodeError, OSError):
             return True
     remaining = [c for c in concepts if _needs_extraction(c)]
@@ -649,10 +659,17 @@ def run_model(model_id: str, concepts: list[str], args, device_override: str | N
 # ---------------------------------------------------------------------------
 
 def _run_model_on_gpu(model_id: str, concepts: list[str], args_dict: dict, gpu_id: int) -> str:
-    """Worker function for parallel GPU execution (runs in subprocess)."""
+    """Worker function for parallel GPU execution (runs in subprocess).
+
+    Sets CUDA_VISIBLE_DEVICES so this process sees only its assigned GPU.
+    device_map='auto' and use_multi_gpu checks then see n_gpus=1, keeping the
+    model fully on the assigned GPU without spilling onto the partner GPU.
+    """
+    import os
     import torch
-    torch.cuda.set_device(gpu_id)
-    device = f"cuda:{gpu_id}"
+    os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
+    torch.cuda.set_device(0)  # within this process, GPU 0 is the one we pinned
+    device = "cuda:0"
 
     class Args:
         pass
@@ -668,8 +685,10 @@ def _run_model_on_gpu(model_id: str, concepts: list[str], args_dict: dict, gpu_i
 def run_parallel(models: list[str], concepts: list[str], args) -> None:
     """Run models across 2 GPUs, two at a time.
 
-    Pairs large models with small ones to balance VRAM across GPUs.
-    The two biggest models (Llama 8B, Mistral 7B) each get a full GPU.
+    Models that need both GPUs (vram_bf16 > 22GB, not 4bit/8bit) are separated
+    out and run sequentially — they can't share a GPU with anything else.
+    Everything else is paired (largest + smallest) and run concurrently, each
+    pinned to one GPU via CUDA_VISIBLE_DEVICES in the subprocess.
     """
     n_gpus = torch.cuda.device_count()
     if n_gpus < 2:
@@ -680,8 +699,26 @@ def run_parallel(models: list[str], concepts: list[str], args) -> None:
 
     log.info("Parallel mode: %d GPUs detected, running 2 models concurrently", n_gpus)
 
-    # Sort by VRAM: pair largest with smallest for balanced GPU load
-    sorted_models = sorted(models, key=lambda m: _registry_vram(m), reverse=True)
+    # Split into models that genuinely need both GPUs vs those that fit in one
+    _L4_VRAM = 22.0
+    both_gpu_models = []
+    single_gpu_models = []
+    for m in models:
+        vram = _registry_vram(m)
+        quant = requires_quantization(m)
+        # 4bit/8bit quantized models always fit in a single GPU regardless of bf16 size
+        if quant in ("4bit", "8bit") or vram <= _L4_VRAM:
+            single_gpu_models.append(m)
+        else:
+            both_gpu_models.append(m)
+
+    if both_gpu_models:
+        log.info("Sequential (need both GPUs): %s", both_gpu_models)
+    if single_gpu_models:
+        log.info("Parallel (single GPU each): %d models", len(single_gpu_models))
+
+    # Pair single-GPU models: largest + smallest for balanced VRAM
+    sorted_models = sorted(single_gpu_models, key=lambda m: _registry_vram(m), reverse=True)
     pairs = []
     remaining = list(sorted_models)
     while len(remaining) >= 2:
@@ -699,7 +736,7 @@ def run_parallel(models: list[str], concepts: list[str], args) -> None:
                 if model_id is None:
                     continue
                 gpu_id = i
-                log.info("Launching %s on cuda:%d", model_id, gpu_id)
+                log.info("Launching %s on GPU %d", model_id, gpu_id)
                 fut = pool.submit(_run_model_on_gpu, model_id, concepts, args_dict, gpu_id)
                 futures[fut] = model_id
 
@@ -710,6 +747,11 @@ def run_parallel(models: list[str], concepts: list[str], args) -> None:
                     log.info("Completed: %s", model_id)
                 except Exception as e:
                     log.error("FAILED %s: %s", model_id, e)
+
+    # Run both-GPU models sequentially after all parallel pairs are done
+    for model_id in both_gpu_models:
+        log.info("Running %s sequentially (uses both GPUs)", model_id)
+        run_model(model_id, concepts, args)
 
 
 _PRH_CLUSTER_MAP = {
@@ -742,6 +784,8 @@ def parse_args():
                        help="Run frontier-scale models only (8192-dim, H200)")
     group.add_argument("--prh-proxy", action="store_true",
                        help="PRH paper: all L4-runnable clusters (A–E + scale ladder)")
+    group.add_argument("--enabled", action="store_true",
+                       help="Run all enabled models from models.yaml registry (use with --split all for rcp_v1)")
     group.add_argument("--prh-frontier", action="store_true",
                        help="PRH paper: 8192-dim frontier cluster (H200 only)")
     group.add_argument("--prh-cluster", choices=list(_PRH_CLUSTER_MAP.keys()),
@@ -752,6 +796,9 @@ def parse_args():
     parser.add_argument("--n-pairs", type=int, default=200)
     parser.add_argument("--split", default="train", choices=["train", "validation", "all"],
                         help="Pair split to use. 'all' uses every available pair (for rcp_v1 HF extraction).")
+    parser.add_argument("--out-root", type=str, default=None,
+                        help="Root directory for model output dirs (e.g. ~/rosetta_data/rcp_v1). "
+                             "Writes to <out-root>/<model_slug>/. Overrides --model-dir-suffix.")
     parser.add_argument("--model-dir-suffix", type=str, default="",
                         help="Append suffix to model directory name (e.g. _p1n100 for isolated P1 storage)")
     parser.add_argument("--batch-size", type=int, default=16)
@@ -804,10 +851,13 @@ def main():
         models = CROSS_ARCH_MODELS + FRONTIER_MODELS
     elif args.all:
         models = CROSS_ARCH_MODELS
+    elif args.enabled:
+        models = _registry_all_models(include_disabled=False)
     else:
         models = [args.model]
 
-    if args.parallel and (args.all or args.frontier):
+    multi_model = args.all or args.frontier or getattr(args, "enabled", False)
+    if args.parallel and multi_model:
         run_parallel(models, concepts, args)
     else:
         for model_id in models:
