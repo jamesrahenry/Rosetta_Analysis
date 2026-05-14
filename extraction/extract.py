@@ -387,17 +387,9 @@ def extract_concept(concept, model, tokenizer, device, n_pairs, batch_size, out_
     cal_path = out_dir / f"calibration_{concept}.npy"
     np.save(cal_path, cal_acts)
 
-    # Save all-layer calibration activations for depth-matched alignment.
-    # Cap at 500 texts to keep file size bounded regardless of corpus size —
-    # rcp_v1 has ~2830 texts/concept which would be 6-15GB/model at full save.
-    _CAL_SAVE_MAX = 500
+    # Save all-layer calibration activations for depth-matched alignment
     all_cal_path = out_dir / f"calibration_alllayer_{concept}.npy"
-    if all_layer_cal.shape[1] > _CAL_SAVE_MAX:
-        step = max(1, all_layer_cal.shape[1] // _CAL_SAVE_MAX)
-        all_layer_cal_to_save = all_layer_cal[:, ::step, :][:, :_CAL_SAVE_MAX, :]
-    else:
-        all_layer_cal_to_save = all_layer_cal
-    np.save(all_cal_path, all_layer_cal_to_save)
+    np.save(all_cal_path, all_layer_cal)
 
     # Rich provenance metadata — one JSON per concept covers both npy files.
     cfg = getattr(model.config, "text_config", model.config)
