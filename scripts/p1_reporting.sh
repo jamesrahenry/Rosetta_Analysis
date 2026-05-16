@@ -3,7 +3,7 @@
 #
 # Runs scored CAZ analysis, family heatmaps, P5 depth-matched alignment,
 # P5 null-test battery, and the full P1 claim validation suite.
-# Data source is ~/rosetta_data/model_snapshots/ (P1 extraction dir).
+# All data reads from ~/rosetta_data/paper_n250/ (frozen HF snapshot).
 #
 # Usage:
 #   ./scripts/p1_reporting.sh
@@ -23,10 +23,10 @@ fi
 
 log() { echo "[$(date -u +%H:%M:%S)] $*"; }
 
-DATA_ROOT=~/rosetta_data/model_snapshots
+DATA_ROOT=~/rosetta_data/paper_n250
 PAPER_OUT=~/rosetta_data/results/CAZ_Framework
 
-log "P1 reporting start"
+log "P1 reporting start (data: ${DATA_ROOT})"
 
 # 1. Scored CAZ analysis across all models
 log "analyze_scored..."
@@ -37,7 +37,7 @@ $UV caz/analyze_scored.py \
 
 # 2. Family analysis — peak heatmaps + concept overlays
 log "analyze (family heatmaps)..."
-$UV caz/analyze.py --all
+$UV caz/analyze.py --results "${DATA_ROOT}"/*/
 
 # 3. P5 depth-matched alignment
 log "p5_propdepth..."
