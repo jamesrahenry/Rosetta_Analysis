@@ -156,7 +156,7 @@ $PY extraction/extract.py \
     --model openai-community/gpt2-xl \
     --n-pairs "${N_PAIRS}" \
     --concepts ${P1_CONCEPTS} \
-    --model-dir-suffix _p1n100 \
+    --out-root ~/rosetta_data/paper_n250 \
     ${CACHE_FLAG}
 
 elapsed
@@ -182,7 +182,7 @@ $PY extraction/extract.py \
     --p1-corpus \
     --n-pairs "${N_PAIRS}" \
     --concepts ${P1_CONCEPTS} \
-    --model-dir-suffix _p1n100 \
+    --out-root ~/rosetta_data/paper_n250 \
     ${CACHE_FLAG}
 
 elapsed
@@ -195,11 +195,11 @@ import json, sys
 from pathlib import Path
 sys.path.insert(0, ".")
 from extraction.extract import P1_MODELS
-from rosetta_tools.paths import ROSETTA_MODELS_SNAPSHOTS
+from rosetta_tools.paths import ROSETTA_PAPER_N250
 def _slug(mid): return mid.replace("/", "_").replace("-", "_")
 revisions = {}
 for model_id in P1_MODELS:
-    meta = ROSETTA_MODELS_SNAPSHOTS / (_slug(model_id) + "_p1n100") / "metadata.json"
+    meta = ROSETTA_PAPER_N250 / _slug(model_id) / "metadata.json"
     if meta.exists():
         try:
             sha = json.loads(meta.read_text()).get("hf_revision_sha")
@@ -228,7 +228,7 @@ fi
 # ---------------------------------------------------------------------------
 step "3 / P5 — depth-matched alignment analysis"
 $PY alignment/p5/p5_propdepth.py \
-    --data-root "${HOME}/rosetta_data/model_snapshots" \
+    --data-root ~/rosetta_data/paper_n250 \
     --out-dir "${PAPER_OUT}/p5"
 elapsed
 
@@ -237,7 +237,7 @@ elapsed
 # ---------------------------------------------------------------------------
 step "4 / P5 — validation battery"
 $PY alignment/p5/p5_validation_battery.py \
-    --data-root "${HOME}/rosetta_data/model_snapshots" \
+    --data-root ~/rosetta_data/paper_n250 \
     --out-dir "${PAPER_OUT}/p5"
 elapsed
 
@@ -258,13 +258,13 @@ import json, sys
 from pathlib import Path
 sys.path.insert(0, ".")
 from extraction.extract import P1_MODELS
-from rosetta_tools.paths import ROSETTA_MODELS_SNAPSHOTS
+from rosetta_tools.paths import ROSETTA_PAPER_N250
 
 def _slug(mid): return mid.replace("/", "_").replace("-", "_")
 
 revisions = {}
 for model_id in P1_MODELS:
-    meta = ROSETTA_MODELS_SNAPSHOTS / (_slug(model_id) + "_p1n100") / "metadata.json"
+    meta = ROSETTA_PAPER_N250 / _slug(model_id) / "metadata.json"
     if meta.exists():
         try:
             sha = json.loads(meta.read_text()).get("hf_revision_sha")
