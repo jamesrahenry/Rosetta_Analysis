@@ -4,7 +4,7 @@
 # Runs CAZ extraction for the P2 corpus, builds GEMs, runs handoff-vs-peak
 # ablation across all model × concept pairs, then aggregates results.
 #
-# P2 corpus: 16 base models (Appendix A), 17 concepts, N=250 pairs.
+# P2 corpus: 29 base models (Appendix A), 17 concepts, N=250 pairs.
 # Paper stats are derived from whatever data this script produces — run with
 # more models or pairs and the numbers update accordingly.
 #
@@ -193,7 +193,7 @@ fi
 # ---------------------------------------------------------------------------
 # Step 3 — CAZ extraction: full P2 corpus
 # ---------------------------------------------------------------------------
-step "3 / CAZ extraction — full P2 corpus (16 models, N=${N_PAIRS} pairs)"
+step "3 / CAZ extraction — full P2 corpus (29 models, N=${N_PAIRS} pairs)"
 info "Skips models already extracted."
 
 $PY extraction/extract.py \
@@ -213,7 +213,7 @@ elapsed
 # ---------------------------------------------------------------------------
 # Step 4 — GEM ablation: full P2 corpus
 # ---------------------------------------------------------------------------
-step "4 / GEM ablation — full P2 corpus (16 models × 17 concepts, N=${N_PAIRS} pairs)"
+step "4 / GEM ablation — full P2 corpus (29 models × 17 concepts, N=${N_PAIRS} pairs)"
 
 $PY gem/ablate_gem.py \
     --p2-corpus \
@@ -264,7 +264,10 @@ fi
 # ---------------------------------------------------------------------------
 step "5 / Aggregate GEM results"
 
-$PY gem/aggregate_gem_results.py --p2-corpus --out-dir "${PAPER_OUT}"
+$PY gem/aggregate_gem_results.py \
+    --p2-corpus \
+    --models-dir ~/rosetta_data/models/ \
+    --out-dir "${PAPER_OUT}"
 
 elapsed
 
