@@ -17,8 +17,8 @@ import math
 
 # ── constants ───────────────────────────────────────────────────────────────
 
-from rosetta_tools.paths import ROSETTA_MODELS
-RESULTS_DIR = str(ROSETTA_MODELS)
+from rosetta_tools.paths import ROSETTA_MODELS, ROSETTA_PAPER_N250
+RESULTS_DIR = str(ROSETTA_PAPER_N250)  # default: frozen paper snapshot; override with --models-dir
 _FILTER_WIDTH = None  # overridden by --width arg; None = accept all widths
 OUTPUT_MD = os.path.join(os.path.dirname(__file__), "..", "results", "gem_sweep_aggregate.md")
 
@@ -37,6 +37,7 @@ PARAM_LOOKUP = {
     "openai-community/gpt2-large": 0.774,
     "openai-community/gpt2-xl": 1.5,
     "facebook/opt-125m": 0.125,
+    "facebook/opt-350m": 0.35,
     "facebook/opt-1.3b": 1.3,
     "facebook/opt-2.7b": 2.7,
     "facebook/opt-6.7b": 6.7,
@@ -54,6 +55,7 @@ PARAM_LOOKUP = {
     "meta-llama/Llama-3.2-1B-Instruct": 1.0,
     "meta-llama/Llama-3.2-3B": 3.0,
     "meta-llama/Llama-3.2-3B-Instruct": 3.0,
+    "meta-llama/Llama-3.1-8B": 8.0,
     "mistralai/Mistral-7B-v0.3": 7.0,
     "mistralai/Mistral-7B-Instruct-v0.3": 7.0,
     "google/gemma-2-2b": 2.0,
@@ -95,6 +97,8 @@ def get_subfamily(model_id):
         return "OPT"
     if "qwen" in mid:
         return "Qwen2.5"
+    if "llama-3.1" in mid:
+        return "Llama-3.1"
     if "llama" in mid:
         return "Llama-3.2"
     if "mistral" in mid:
@@ -601,10 +605,16 @@ def main():
     parser.add_argument("--width", type=int, default=None,
                         help="Filter to ablations with this node width (default: 3; pass 0 for all widths)")
     parser.add_argument("--p2-corpus", action="store_true",
-                        help="Filter to the canonical P2 paper corpus (16 models) from ablate_gem.P2_MODELS")
+                        help="Filter to the canonical P2 paper corpus (29 models) from ablate_gem.P2_MODELS")
+    parser.add_argument("--models-dir", type=str, default=None,
+                        help="Root directory containing per-model subdirs with ablation_gem_*.json "
+                             "(default: ~/rosetta_data/paper_n250 — frozen paper snapshot). "
+                             "Pass ~/rosetta_data/models/ when running on a GPU host.")
     args = parser.parse_args()
 
-    global _FILTER_WIDTH
+    global RESULTS_DIR, _FILTER_WIDTH
+    if args.models_dir is not None:
+        RESULTS_DIR = args.models_dir
     if args.width is not None:
         _FILTER_WIDTH = args.width if args.width != 0 else None
 

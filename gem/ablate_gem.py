@@ -82,30 +82,45 @@ CONCEPTS = [
 ]
 
 # Paper 2 (GEM) canonical model set — 16 models, 6 families, 17 concepts = 272 ablation pairs.
-# Appendix A: Pythia×7, gpt2×1, OPT×1, Qwen2.5×5 (0.5B–14B), Mistral×1, Gemma-2×1
+# P2 canonical corpus — 29 base models, 8 families, 70M–14B
 P2_MODELS: list[str] = [
-    # Pythia scale ladder (EleutherAI) — 70M–12B
+    # Pythia scale ladder (EleutherAI) — 70M–12B (8 models)
     "EleutherAI/pythia-70m",
     "EleutherAI/pythia-160m",
     "EleutherAI/pythia-410m",
     "EleutherAI/pythia-1b",
+    "EleutherAI/pythia-1.4b",
     "EleutherAI/pythia-2.8b",
     "EleutherAI/pythia-6.9b",
     "EleutherAI/pythia-12b",
-    # GPT-2 (OpenAI)
+    # GPT-2 (OpenAI) — 4 models
     "openai-community/gpt2",
-    # OPT (Meta)
+    "openai-community/gpt2-medium",
+    "openai-community/gpt2-large",
+    "openai-community/gpt2-xl",
+    # OPT (Meta) — 5 models
+    "facebook/opt-125m",
+    "facebook/opt-350m",
+    "facebook/opt-1.3b",
+    "facebook/opt-2.7b",
     "facebook/opt-6.7b",
-    # Qwen2.5 (Alibaba) — 0.5B–14B
+    # Qwen2.5 (Alibaba) — 0.5B–14B (5 models)
     "Qwen/Qwen2.5-0.5B",
     "Qwen/Qwen2.5-1.5B",
     "Qwen/Qwen2.5-3B",
     "Qwen/Qwen2.5-7B",
     "Qwen/Qwen2.5-14B",
-    # Mistral (Mistral AI)
+    # Mistral (Mistral AI) — 1 model
     "mistralai/Mistral-7B-v0.3",
-    # Gemma-2 (Google)
+    # Gemma-2 (Google) — 2 models
+    "google/gemma-2-2b",
     "google/gemma-2-9b",
+    # Llama (Meta) — 3 models
+    "meta-llama/Llama-3.2-1B",
+    "meta-llama/Llama-3.2-3B",
+    "meta-llama/Llama-3.1-8B",
+    # Phi (Microsoft) — 1 model
+    "microsoft/phi-2",
 ]
 
 

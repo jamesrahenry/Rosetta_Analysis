@@ -24,7 +24,7 @@ import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 from pathlib import Path
 
-from rosetta_tools.paths import ROSETTA_MODELS
+from rosetta_tools.paths import ROSETTA_MODELS, ROSETTA_PAPER_N250
 
 PAPERS_OUT = Path.home() / "Source" / "Rosetta_Program" / "papers" / "gem" / "figures"
 
@@ -37,41 +37,48 @@ CONCEPT_LABELS = {
     "specificity": "Specificity", "temporal_order": "Temporal order",
     "threat_severity": "Threat severity", "urgency": "Urgency",
 }
+# P2 canonical corpus — 29 base models, 8 families, 70M–14B
 PRIMARY_MODELS = {
+    # Pythia (8)
     "EleutherAI/pythia-70m", "EleutherAI/pythia-160m", "EleutherAI/pythia-410m",
-    "EleutherAI/pythia-1b", "EleutherAI/pythia-2.8b", "EleutherAI/pythia-6.9b",
-    "EleutherAI/pythia-12b", "openai-community/gpt2", "facebook/opt-6.7b",
+    "EleutherAI/pythia-1b", "EleutherAI/pythia-1.4b", "EleutherAI/pythia-2.8b",
+    "EleutherAI/pythia-6.9b", "EleutherAI/pythia-12b",
+    # GPT-2 (4)
+    "openai-community/gpt2", "openai-community/gpt2-medium",
+    "openai-community/gpt2-large", "openai-community/gpt2-xl",
+    # OPT (5)
+    "facebook/opt-125m", "facebook/opt-350m", "facebook/opt-1.3b",
+    "facebook/opt-2.7b", "facebook/opt-6.7b",
+    # Qwen2.5 (5)
     "Qwen/Qwen2.5-0.5B", "Qwen/Qwen2.5-1.5B", "Qwen/Qwen2.5-3B",
     "Qwen/Qwen2.5-7B", "Qwen/Qwen2.5-14B",
-    "mistralai/Mistral-7B-v0.3", "google/gemma-2-9b",
+    # Mistral (1)
+    "mistralai/Mistral-7B-v0.3",
+    # Gemma-2 (2)
+    "google/gemma-2-2b", "google/gemma-2-9b",
+    # Llama (3)
+    "meta-llama/Llama-3.2-1B", "meta-llama/Llama-3.2-3B", "meta-llama/Llama-3.1-8B",
+    # Phi (1)
+    "microsoft/phi-2",
 }
 
 
-def load_eec_data():
-    """Return (eecs_all, per_concept) for the 16-model primary corpus.
+def load_eec_data(models_dir: Path = ROSETTA_PAPER_N250):
+    """Return (eecs_all, per_concept) for the 29-model P2 corpus.
 
-    Prefers pre-aggregated N=250 result files if present; falls back to
-    individual gem_*.json model files (N=200).
+    Reads gem_*.json files from models_dir (default: ~/rosetta_data/paper_n250/).
     """
-    results_dir = Path.home() / "rosetta_data" / "results"
-    agg_files = [
-        results_dir / "gem_eec_corpus.json",
-    ]
-    if all(f.exists() for f in agg_files):
-        eecs_all = []
-        per_concept = {}
-        for agg_path in agg_files:
-            data = json.load(open(agg_path))
-            for model_data in data.values():
-                for concept, eec in model_data.get("per_concept", {}).items():
-                    eecs_all.append(eec)
-                    per_concept.setdefault(concept, []).append(eec)
-        return np.array(eecs_all), {k: np.array(v) for k, v in per_concept.items()}
-
     eecs_all = []
     per_concept = {}
 
-    for model_dir in sorted(ROSETTA_MODELS.iterdir()):
+    if not models_dir.exists():
+        raise FileNotFoundError(
+            f"{models_dir} not found.\n"
+            "Download: hf download james-ra-henry/Rosetta-Activations "
+            "--repo-type dataset --local-dir ~/rosetta_data/ --include 'paper_n250/*'"
+        )
+
+    for model_dir in sorted(models_dir.iterdir()):
         for gf in sorted(model_dir.glob("gem_*.json")):
             d = json.load(open(gf))
             nodes = d.get("nodes", [])
@@ -96,11 +103,16 @@ def load_eec_data():
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--out-dir", default=str(PAPERS_OUT))
+    parser.add_argument("--models-dir", type=str, default=None,
+                        help="Root dir with per-model gem_*.json files "
+                             "(default: ~/rosetta_data/paper_n250). "
+                             "Pass ~/rosetta_data/models/ on GPU hosts.")
     args = parser.parse_args()
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    eecs, per_concept = load_eec_data()
+    models_dir = Path(args.models_dir) if args.models_dir else ROSETTA_PAPER_N250
+    eecs, per_concept = load_eec_data(models_dir)
     mean_eec   = eecs.mean()
     median_eec = np.median(eecs)
 
@@ -122,7 +134,8 @@ def main():
                label=f"Median = {median_eec:.2f}")
     ax.set_xlabel("Entry–exit cosine (EEC)", fontsize=11)
     ax.set_ylabel("Number of concept × model pairs", fontsize=10)
-    ax.set_title("A  EEC distribution (272 pairs)", fontsize=11, loc="left", fontweight="bold")
+    n_pairs = len(eecs)
+    ax.set_title(f"A  EEC distribution ({n_pairs} pairs)", fontsize=11, loc="left", fontweight="bold")
     ax.legend(fontsize=9, framealpha=0.85)
     ax.set_xlim(0, 1)
     ax.yaxis.set_major_locator(ticker.MaxNLocator(integer=True))
@@ -146,7 +159,8 @@ def main():
     ax.set_yticks(y)
     ax.set_yticklabels(labels, fontsize=8.5)
     ax.set_xlabel("Mean EEC ± SEM", fontsize=11)
-    ax.set_title("B  Per-concept mean EEC (16 models each)", fontsize=11,
+    n_models = len(PRIMARY_MODELS)
+    ax.set_title(f"B  Per-concept mean EEC ({n_models} models each)", fontsize=11,
                  loc="left", fontweight="bold")
     ax.set_xlim(0, 0.7)
     ax.xaxis.set_major_locator(ticker.MultipleLocator(0.1))
