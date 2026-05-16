@@ -384,7 +384,8 @@ def patch_sweep(
 # ---------------------------------------------------------------------------
 
 def run_model(model_id: str, concepts: list[str], args) -> None:
-    extraction_dir = find_extraction_dir(model_id)
+    models_root = Path(args.models_dir) if getattr(args, "models_dir", None) else None
+    extraction_dir = find_extraction_dir(model_id, models_root)
     if extraction_dir is None:
         log.error("No extraction results for %s — run extract.py first", model_id)
         return
@@ -517,18 +518,23 @@ def main():
                         help="Keep model in HF cache after patching (default: purge)")
     parser.add_argument("--force",       action="store_true",
                         help="Re-run even if patch_<concept>.json already exists")
+    parser.add_argument("--models-dir", type=str, default=None,
+                        help="Root directory containing per-model extraction dirs "
+                             "(default: ~/rosetta_data/paper_n250). "
+                             "Pass ~/rosetta_data/models/ on GPU hosts.")
     args = parser.parse_args()
 
+    models_root = Path(args.models_dir) if args.models_dir else None
     if args.model:
         models = [args.model]
     elif args.p3_corpus:
         models = P3_MODELS
     else:
-        models = discover_all_models()
+        models = discover_all_models(models_root)
     log.info("Queued %d models", len(models))
 
     for model_id in models:
-        extraction_dir = find_extraction_dir(model_id)
+        extraction_dir = find_extraction_dir(model_id, models_root)
         if extraction_dir is None:
             log.warning("No extraction results for %s — skipping", model_id)
             continue

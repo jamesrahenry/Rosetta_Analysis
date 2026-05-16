@@ -169,6 +169,7 @@ info "Skips if already extracted."
 $PY extraction/extract.py \
     --model openai-community/gpt2-xl \
     --n-pairs "${N_PAIRS}" \
+    --out-root ~/rosetta_data/paper_n250 \
     ${CACHE_FLAG}
 
 elapsed
@@ -178,11 +179,13 @@ if [ "${QUICK}" = true ]; then
 
     $PY gem/ablate.py \
         --model openai-community/gpt2-xl \
-        --n-pairs "${N_PAIRS}"
+        --n-pairs "${N_PAIRS}" \
+        --models-dir ~/rosetta_data/paper_n250
 
     $PY gem/patch.py \
         --model openai-community/gpt2-xl \
         --n-pairs "${N_PAIRS}" \
+        --models-dir ~/rosetta_data/paper_n250 \
         ${RD_CACHE_FLAG}
 
     echo
@@ -200,6 +203,7 @@ info "Skips models already extracted."
 $PY extraction/extract.py \
     --p3-corpus \
     --n-pairs "${N_PAIRS}" \
+    --out-root ~/rosetta_data/paper_n250 \
     ${CACHE_FLAG}
 
 elapsed
@@ -212,7 +216,8 @@ info "Tests whether CAZ peak is the functionally active layer."
 
 $PY gem/ablate.py \
     --p3-corpus \
-    --n-pairs "${N_PAIRS}"
+    --n-pairs "${N_PAIRS}" \
+    --models-dir ~/rosetta_data/paper_n250
 
 # ablate.py defaults to keeping cache; no flag needed
 
@@ -227,6 +232,7 @@ info "Triangulates CAZ causal load-bearing via mean-field shift patching."
 $PY gem/patch.py \
     --p3-corpus \
     --n-pairs "${N_PAIRS}" \
+    --models-dir ~/rosetta_data/paper_n250 \
     ${RD_CACHE_FLAG}
 
 elapsed
@@ -240,6 +246,7 @@ info "Confirms suppression is direction-specific, not a layer-level artifact."
 $PY gem/ablate_random_direction.py \
     --p3-corpus \
     --n-pairs "${N_PAIRS}" \
+    --models-dir ~/rosetta_data/paper_n250 \
     ${RD_CACHE_FLAG}
 
 elapsed
@@ -268,12 +275,12 @@ import json, sys
 from pathlib import Path
 sys.path.insert(0, ".")
 from extraction.extract import P3_MODELS, P3_INSTRUCT_MODELS
-from rosetta_tools.paths import ROSETTA_MODELS
+from rosetta_tools.paths import ROSETTA_PAPER_N250
 all_models = P3_MODELS + (P3_INSTRUCT_MODELS if "${WITH_INSTRUCT}" == "true" else [])
 def _slug(mid): return mid.replace("/", "_").replace("-", "_")
 revisions = {}
 for model_id in all_models:
-    meta = ROSETTA_MODELS / _slug(model_id) / "metadata.json"
+    meta = ROSETTA_PAPER_N250 / _slug(model_id) / "metadata.json"
     if meta.exists():
         try:
             sha = json.loads(meta.read_text()).get("hf_revision_sha")
@@ -303,7 +310,10 @@ fi
 step "6 / Scored CAZ analysis — all extracted models"
 info "Runs scored detection (0.5% prominence floor), produces per-model profiles."
 
-$PY caz/analyze_scored.py --output "${PAPER_OUT}/scored_analysis.md" --csv
+$PY caz/analyze_scored.py \
+    --results-dir ~/rosetta_data/paper_n250 \
+    --output "${PAPER_OUT}/scored_analysis.md" \
+    --csv
 
 elapsed
 
@@ -312,7 +322,7 @@ elapsed
 # ---------------------------------------------------------------------------
 step "7 / Cross-architecture concept ordering analysis"
 
-$PY caz/analyze.py --all
+$PY caz/analyze.py --results ~/rosetta_data/paper_n250/*/
 
 elapsed
 
@@ -325,6 +335,7 @@ if [ "${WITH_INSTRUCT}" = true ]; then
     $PY extraction/extract.py \
         --p3-corpus-instruct \
         --n-pairs "${N_PAIRS}" \
+        --out-root ~/rosetta_data/paper_n250 \
         ${CACHE_FLAG}
 
     elapsed

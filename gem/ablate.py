@@ -340,14 +340,14 @@ def ablation_sweep(
 # ---------------------------------------------------------------------------
 
 def run_model(model_id: str, concepts: list[str], args) -> None:
+    models_root = Path(args.models_dir) if getattr(args, "models_dir", None) else None
     dir_suffix = getattr(args, "model_dir_suffix", None) or ""
-    if dir_suffix:
-        from pathlib import Path
+    if dir_suffix and not models_root:
         model_slug = model_id.replace("/", "_").replace("-", "_")
         candidate = Path.home() / "rosetta_data" / "model_snapshots" / (model_slug + dir_suffix)
         extraction_dir = candidate if candidate.is_dir() else None
     else:
-        extraction_dir = find_extraction_dir(model_id)
+        extraction_dir = find_extraction_dir(model_id, models_root)
     if extraction_dir is None:
         log.error("No extraction results found for %s — run extract.py first", model_id)
         return
@@ -499,6 +499,10 @@ def parse_args():
     group.add_argument("--p3-corpus", action="store_true", help="Paper 3 CAZ Validation: 26 base models")
     parser.add_argument("--concepts", nargs="+", default=None,
                         help="Concepts to ablate (default: all with extraction results)")
+    parser.add_argument("--models-dir", type=str, default=None,
+                        help="Root directory containing per-model extraction dirs "
+                             "(default: ~/rosetta_data/paper_n250). "
+                             "Pass ~/rosetta_data/models/ on GPU hosts.")
     parser.add_argument("--model-dir-suffix", type=str, default="",
                         help="Read extraction results from model directory with this suffix appended")
     parser.add_argument("--n-pairs", type=int, default=50,
@@ -517,8 +521,9 @@ def main():
     args = parse_args()
     concepts = args.concepts or CONCEPTS
 
+    models_root = Path(args.models_dir) if args.models_dir else None
     if args.all:
-        models = discover_all_models()
+        models = discover_all_models(models_root)
         log.info("Found %d models with extraction results", len(models))
     elif args.p3_corpus:
         models = P3_MODELS

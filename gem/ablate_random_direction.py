@@ -267,7 +267,8 @@ def run_concept(
 
 
 def run_model(model_id: str, concepts: list[str], args) -> None:
-    extraction_dir = find_extraction_dir(model_id)
+    models_root = Path(args.models_dir) if getattr(args, "models_dir", None) else None
+    extraction_dir = find_extraction_dir(model_id, models_root)
     if extraction_dir is None:
         log.error("No extraction results for %s — skipping", model_id)
         return
@@ -358,12 +359,17 @@ def main():
     parser.add_argument("--dtype", choices=["auto", "bfloat16", "float32"], default="auto")
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--no-clean-cache", action="store_true")
+    parser.add_argument("--models-dir", type=str, default=None,
+                        help="Root directory containing per-model extraction dirs "
+                             "(default: ~/rosetta_data/paper_n250). "
+                             "Pass ~/rosetta_data/models/ on GPU hosts.")
 
     args = parser.parse_args()
     concepts = args.concepts or CONCEPTS
+    models_root = Path(args.models_dir) if args.models_dir else None
 
     if args.all:
-        models = discover_all_models()
+        models = discover_all_models(models_root)
         log.info("Found %d models", len(models))
     elif args.p3_corpus:
         models = P3_MODELS
