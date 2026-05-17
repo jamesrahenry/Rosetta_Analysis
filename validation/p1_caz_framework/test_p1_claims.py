@@ -35,13 +35,14 @@ from validation.p1_caz_framework._helpers import P1_CONCEPTS, GPT2XL_SLUG, metri
 
 class TestGPT2XLProofOfConcept:
     """Paper §6: 'a minimal example on GPT-2-XL (48 layers, 1.5B parameters) using
-    7 concepts with 100 contrastive pairs each.' (P1 proof-of-concept corpus)"""
+    7 concepts with 250 contrastive pairs each.' (canonical paper_n250 corpus)"""
 
     def test_model_metadata(self, gpt2xl_caz):
-        """Paper §6: GPT-2-XL has 48 layers; N=100 pairs (P1 proof-of-concept)."""
+        """Paper §6: GPT-2-XL has 48 layers; N=250 pairs (canonical paper_n250)."""
         data, _ = gpt2xl_caz["credibility"]
         assert data["n_layers"] == 48, "Expected 48 layers in GPT-2-XL"
-        assert data["n_pairs"] == 100, "Expected N=100 contrastive pairs (P1 corpus)"
+        assert data["n_pairs"] >= 250, \
+            f"Expected N≥250 contrastive pairs (canonical paper_n250), got {data['n_pairs']}"
 
     def test_credibility_peak_layer(self, gpt2xl_caz):
         """Paper §6.1: 'separation curve S(l) for credibility in GPT-2-XL
@@ -54,11 +55,11 @@ class TestGPT2XLProofOfConcept:
         assert depth_pct == 60, f"Credibility peak depth: expected 60%, got {depth_pct}%"
 
     def test_credibility_peak_separation(self, gpt2xl_caz):
-        """Paper §6.1: 'with S = 1.07.' (N=100 corpus value)"""
+        """Paper §6.1: 'with S = 1.05.' (canonical paper_n250 value)"""
         _, metrics = gpt2xl_caz["credibility"]
         peak_sep = max(m.separation for m in metrics)
-        assert abs(peak_sep - 1.07) < 0.02, \
-            f"Credibility peak S: expected ~1.07, got {peak_sep:.3f}"
+        assert abs(peak_sep - 1.05) < 0.02, \
+            f"Credibility peak S: expected ~1.05, got {peak_sep:.3f}"
 
     def test_seven_concepts_present(self, gpt2xl_caz):
         """Paper §6: 7 concepts evaluated."""
@@ -66,27 +67,27 @@ class TestGPT2XLProofOfConcept:
         assert set(gpt2xl_caz.keys()) == set(P1_CONCEPTS)
 
     def test_peak_depth_range(self, gpt2xl_caz):
-        """Paper §6.1: 'allocation peaks span 28–62% depth.' (N=100 corpus)"""
+        """Paper §6.1: 'allocation peaks span 35–60% depth.' (canonical paper_n250)"""
         peak_pcts = []
         for concept, (data, metrics) in gpt2xl_caz.items():
             n = data["n_layers"]
             peak_l = max(range(len(metrics)), key=lambda i: metrics[i].separation)
             peak_pcts.append(peak_l / n * 100)
-        assert min(peak_pcts) >= 23.0, \
-            f"Minimum peak depth {min(peak_pcts):.1f}% below expected floor (~28%; negation flat plateau)"
+        assert min(peak_pcts) >= 30.0, \
+            f"Minimum peak depth {min(peak_pcts):.1f}% below expected floor (~35%; negation L17)"
         assert max(peak_pcts) <= 65.0, \
-            f"Maximum peak depth {max(peak_pcts):.1f}% above expected ceiling of ~62%"
+            f"Maximum peak depth {max(peak_pcts):.1f}% above expected ceiling of ~60%"
 
     def test_peak_layer_ordering(self, gpt2xl_caz):
-        """Paper §6.1: 'negation L13, temporal_order L21, causation/certainty/sentiment/
-        moral_valence L23, credibility L29.' (N=100 corpus)"""
+        """Paper §6.1: 'negation L17, temporal_order L21, certainty/moral_valence L23,
+        sentiment L24, causation L25, credibility L29.' (canonical paper_n250)"""
         peak_layers = {}
         for concept, (_, metrics) in gpt2xl_caz.items():
             peak_layers[concept] = max(range(len(metrics)), key=lambda i: metrics[i].separation)
 
         expected_peaks = {
-            "negation": 13, "temporal_order": 21, "certainty": 23,
-            "sentiment": 23, "causation": 23, "credibility": 29,
+            "negation": 17, "temporal_order": 21, "certainty": 23,
+            "sentiment": 24, "causation": 25, "credibility": 29,
         }
         for concept, expected_l in expected_peaks.items():
             assert peak_layers[concept] == expected_l, \
@@ -103,28 +104,28 @@ class TestGPT2XLProofOfConcept:
 
 class TestScoredDetection:
     """Paper §6.2: 'Lowering the detection threshold from 10% to 0.5% (scored
-    detection) increases the number of detected CAZes from 8 to 9 in this
-    single model.' (N=100 P1 corpus)"""
+    detection) increases the number of detected CAZes from 7 to 10 in this
+    single model.' (canonical paper_n250 corpus)"""
 
     def test_legacy_threshold_yields_eight_cazes(self, gpt2xl_caz):
-        """10% threshold: 8 CAZes across 7 concepts (N=250 canonical)."""
+        """10% threshold: 7 CAZes across 7 concepts (canonical paper_n250)."""
         total = sum(
             len(find_caz_regions(m, min_prominence_frac=0.10).regions)
             for _, m in gpt2xl_caz.values()
         )
-        assert total == 8, \
-            f"Expected 8 CAZes at 10% threshold, got {total}"
+        assert total == 7, \
+            f"Expected 7 CAZes at 10% threshold, got {total}"
 
     def test_scored_threshold_yields_9_cazes(self, gpt2xl_caz):
-        """Paper §6.2: 'increases the number of detected CAZes from 8 to 9.'
-        (N=100 P1 corpus; valley-merge algorithm active)"""
+        """Paper §6.2: 'increases the number of detected CAZes from 7 to 10.'
+        (canonical paper_n250; valley-merge algorithm active)"""
         n_scored = sum(
             len(find_caz_regions_scored(m).regions)
             for _, m in gpt2xl_caz.values()
         )
-        assert n_scored == 9, \
-            f"Expected 9 CAZes at 0.5% threshold, got {n_scored}. " \
-            "Data or algorithm has drifted from the N=100 P1 extraction."
+        assert n_scored == 10, \
+            f"Expected 10 CAZes at 0.5% threshold, got {n_scored}. " \
+            "Data or algorithm has drifted from the canonical paper_n250 extraction."
 
     def test_credibility_has_two_cazes(self, gpt2xl_caz):
         """Paper §6.1: credibility has 2 scored CAZes (L9, L29) after
@@ -298,14 +299,10 @@ class TestP5NullTests:
 
 @pytest.mark.slow
 class TestCrossArchOrdering:
-    """Paper §5.2: Cross-architecture concept ordering (base models, N=200/250 corpus).
+    """Paper §5.2: Cross-architecture concept ordering (base models, canonical N=250 corpus).
 
     Paper claim: 81% of base models positively correlated with consensus ordering,
-    permutation p=0.04 (26 base models, N=200 pairs).
-
-    Uses all_p1_n200_caz (N≥200 extractions) rather than N=100 snapshots.
-    N=100 gives 69% positive with noisier peak-depth estimates; N=200 resolves
-    enough noise to match the paper's stated rate.
+    permutation p=0.04 (26 base models).
     """
 
     @staticmethod
@@ -447,21 +444,20 @@ class TestSubRepresentations:
 
 @pytest.mark.slow
 class TestStructuralClaims:
-    """Paper §4 / §6.2: 'mean 3.4 CAZes per concept per model' and
+    """Paper §4 / §6.2: 'mean ~2.5 CAZes per concept per model' and
     '48% of CAZ layers host 2+ concepts simultaneously.'"""
 
     def test_mean_cazes_per_concept_per_model(self, all_p1_caz):
         """Mean CAZes per concept per model under scored detection.
-        N=100 corpus (26 base models): ~2.22.
-        NOTE: paper §4 cites 3.4 from N=250 analysis — needs update."""
+        Canonical paper_n250 (26 base models × 7 concepts): ~2.5."""
         counts = []
         for slug, model_data in all_p1_caz.items():
             for concept, (_, metrics) in model_data.items():
                 n = len(find_caz_regions_scored(metrics).regions)
                 counts.append(n)
         mean_count = float(np.mean(counts))
-        assert abs(mean_count - 2.22) < 0.5, \
-            f"Mean CAZes per concept per model: expected ~2.22 (N=100), got {mean_count:.2f}"
+        assert abs(mean_count - 2.5) < 0.5, \
+            f"Mean CAZes per concept per model: expected ~2.5 (paper_n250), got {mean_count:.2f}"
 
     def test_shared_caz_layer_fraction(self, all_p1_caz):
         """Paper §4: '48% of CAZ layers host 2+ concepts simultaneously.'"""
@@ -555,30 +551,30 @@ class TestP7ScaleVsMultimodality:
     """Paper §5.7: 'The scale correlation is near zero (ρ = 0.11, p = 0.63).'"""
 
     _PARAM_COUNTS = {
-        "openai_community_gpt2_p1n100":           0.124,
-        "openai_community_gpt2_large_p1n100":     0.774,
-        "openai_community_gpt2_xl_p1n100":        1.500,
-        "EleutherAI_pythia_70m_p1n100":           0.070,
-        "EleutherAI_pythia_160m_p1n100":          0.160,
-        "EleutherAI_pythia_410m_p1n100":          0.410,
-        "EleutherAI_pythia_1b_p1n100":            1.000,
-        "EleutherAI_pythia_1.4b_p1n100":          1.400,
-        "EleutherAI_pythia_2.8b_p1n100":          2.800,
-        "EleutherAI_pythia_6.9b_p1n100":          6.900,
-        "facebook_opt_2.7b_p1n100":               2.700,
-        "facebook_opt_6.7b_p1n100":               6.700,
-        "Qwen_Qwen2.5_0.5B_p1n100":              0.500,
-        "Qwen_Qwen2.5_1.5B_p1n100":              1.500,
-        "Qwen_Qwen2.5_3B_p1n100":               3.000,
-        "Qwen_Qwen2.5_7B_p1n100":               7.000,
-        "Qwen_Qwen2.5_14B_p1n100":             14.000,
-        "google_gemma_2_2b_p1n100":              2.000,
-        "google_gemma_2_9b_p1n100":              9.000,
-        "meta_llama_Llama_3.2_1B_p1n100":        1.000,
-        "meta_llama_Llama_3.2_3B_p1n100":        3.000,
-        "meta_llama_Llama_3.1_8B_p1n100":        8.000,
-        "mistralai_Mistral_7B_v0.3_p1n100":      7.000,
-        "microsoft_phi_2_p1n100":                2.700,
+        "openai_community_gpt2":           0.124,
+        "openai_community_gpt2_large":     0.774,
+        "openai_community_gpt2_xl":        1.500,
+        "EleutherAI_pythia_70m":           0.070,
+        "EleutherAI_pythia_160m":          0.160,
+        "EleutherAI_pythia_410m":          0.410,
+        "EleutherAI_pythia_1b":            1.000,
+        "EleutherAI_pythia_1.4b":          1.400,
+        "EleutherAI_pythia_2.8b":          2.800,
+        "EleutherAI_pythia_6.9b":          6.900,
+        "facebook_opt_2.7b":               2.700,
+        "facebook_opt_6.7b":               6.700,
+        "Qwen_Qwen2.5_0.5B":              0.500,
+        "Qwen_Qwen2.5_1.5B":              1.500,
+        "Qwen_Qwen2.5_3B":               3.000,
+        "Qwen_Qwen2.5_7B":               7.000,
+        "Qwen_Qwen2.5_14B":             14.000,
+        "google_gemma_2_2b":              2.000,
+        "google_gemma_2_9b":              9.000,
+        "meta_llama_Llama_3.2_1B":        1.000,
+        "meta_llama_Llama_3.2_3B":        3.000,
+        "meta_llama_Llama_3.1_8B":        8.000,
+        "mistralai_Mistral_7B_v0.3":      7.000,
+        "microsoft_phi_2":                2.700,
     }
 
     def test_scale_multimodality_correlation(self, all_p1_caz):
@@ -627,13 +623,13 @@ class TestCorpusIntegrity:
             assert set(model_data.keys()) == set(P1_CONCEPTS), \
                 f"{slug}: concept mismatch — {set(model_data.keys()) ^ set(P1_CONCEPTS)}"
 
-    def test_all_models_have_100_pairs(self, all_p1_caz):
-        """Paper §6: N=100 contrastive pairs per concept (P1 proof-of-concept corpus)."""
+    def test_all_models_have_250_pairs(self, all_p1_caz):
+        """Paper §6: N=250 contrastive pairs per concept (canonical paper_n250 corpus)."""
         for slug, model_data in all_p1_caz.items():
             for concept, (caz_data, _) in model_data.items():
                 n = caz_data.get("n_pairs")
-                assert n == 100, \
-                    f"{slug}/{concept}: n_pairs={n}, expected 100"
+                assert n >= 250, \
+                    f"{slug}/{concept}: n_pairs={n}, expected ≥250"
 
     def test_seven_architectural_families_represented(self, all_p1_caz):
         """Paper §6.3: '7 architectural families.'"""
