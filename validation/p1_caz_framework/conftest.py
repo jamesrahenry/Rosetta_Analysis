@@ -4,31 +4,43 @@ All data is loaded from rosetta_tools.paths — no hardcoded paths.
 Missing data causes pytest.skip(), not fixture errors, so tests that
 can run do run regardless of which machine or partial dataset is present.
 
-Canonical source: ROSETTA_MODELS (paper_n250 rsync, N=250 pairs).
+Canonical source: paper_n250/ (frozen HF SHA-pinned snapshot), with fallback
+to models/ on machines where paper_n250/ has not been fully restored.
 """
 import json
 import pytest
 
-from rosetta_tools.paths import ROSETTA_MODELS, ROSETTA_RESULTS
+from rosetta_tools.paths import ROSETTA_RESULTS
 from validation.p1_caz_framework._helpers import (
-    P1_CONCEPTS, GPT2XL_SLUG,
+    P1_CONCEPTS, P1_MODELS_SEARCH, P1_MODELS_ROOT, GPT2XL_SLUG,
     P5_SAMEDIM_FILE, P5_BATTERY_FILE,
     metrics_from_caz_json,
 )
 
 
 def _load_model_concepts(slug: str) -> dict:
-    """Load all P1 concepts for one model from ROSETTA_MODELS.
-    Returns {concept: (raw_dict, metrics)}, or empty dict if any concept file is missing."""
-    result = {}
-    slug_dir = ROSETTA_MODELS / slug
-    for concept in P1_CONCEPTS:
-        path = slug_dir / f"caz_{concept}.json"
-        if not path.exists():
-            return {}
-        data = json.loads(path.read_text())
-        result[concept] = (data, metrics_from_caz_json(data))
-    return result
+    """Load all P1 concepts for one model, trying each root in P1_MODELS_SEARCH order.
+    Uses the first root that has the slug with full concept coverage AND n_pairs >= 250.
+    Returns {concept: (raw_dict, metrics)}, or empty dict if not found."""
+    for root in P1_MODELS_SEARCH:
+        slug_dir = root / slug
+        if not slug_dir.is_dir():
+            continue
+        result = {}
+        ok = True
+        for concept in P1_CONCEPTS:
+            path = slug_dir / f"caz_{concept}.json"
+            if not path.exists():
+                ok = False
+                break
+            data = json.loads(path.read_text())
+            if data.get("n_pairs", 0) < 250:
+                ok = False
+                break
+            result[concept] = (data, metrics_from_caz_json(data))
+        if ok:
+            return result
+    return {}
 
 
 @pytest.fixture(scope="session")
@@ -38,7 +50,7 @@ def gpt2xl_caz() -> dict:
     d = _load_model_concepts(GPT2XL_SLUG)
     if not d:
         pytest.skip(
-            f"GPT-2-XL CAZ data not found at {ROSETTA_MODELS / GPT2XL_SLUG}. "
+            f"GPT-2-XL CAZ data not found at {P1_MODELS_ROOT / GPT2XL_SLUG}. "
             "Restore from HF: hf download james-ra-henry/Rosetta-Activations --include 'paper_n250/*'"
         )
     return d
@@ -74,24 +86,32 @@ _INSTRUCT_MARKERS = ("_Instruct", "_instruct")
 @pytest.fixture(scope="session")
 def all_p1_caz() -> dict:
     """Base-model P1 data (canonical N=250) -> {slug: {concept: (data, metrics)}}.
-    Reads from ROSETTA_MODELS, filtering to base models only.
+    Enumerates slugs across all P1_MODELS_SEARCH roots (paper_n250/ + models/).
+    Per-model data comes from the first root that has full concept coverage for that slug.
     Instruct variants are excluded — P1 paper claims are established on base models."""
-    if not ROSETTA_MODELS.exists():
-        pytest.skip(f"ROSETTA_MODELS not found: {ROSETTA_MODELS}")
+    if not P1_MODELS_SEARCH:
+        pytest.skip("No P1 model roots found (paper_n250/ and models/ both absent). "
+                    "Restore from HF: hf download james-ra-henry/Rosetta-Activations --include 'paper_n250/*'")
+
+    # Collect unique base-model slugs across all search roots
+    seen: set[str] = set()
+    for root in P1_MODELS_SEARCH:
+        for slug_dir in sorted(root.iterdir()):
+            if not slug_dir.is_dir():
+                continue
+            if any(m in slug_dir.name for m in _INSTRUCT_MARKERS):
+                continue
+            seen.add(slug_dir.name)
 
     result = {}
-    for slug_dir in sorted(ROSETTA_MODELS.iterdir()):
-        if not slug_dir.is_dir():
-            continue
-        if any(m in slug_dir.name for m in _INSTRUCT_MARKERS):
-            continue
-        model_data = _load_model_concepts(slug_dir.name)
+    for slug in sorted(seen):
+        model_data = _load_model_concepts(slug)
         if model_data:
-            result[slug_dir.name] = model_data
+            result[slug] = model_data
 
     if not result:
         pytest.skip(
-            f"No P1 base-model data with full concept coverage found under {ROSETTA_MODELS}. "
+            f"No P1 base-model data with full concept coverage found in {[str(r) for r in P1_MODELS_SEARCH]}. "
             "Restore from HF: hf download james-ra-henry/Rosetta-Activations --include 'paper_n250/*'"
         )
     return result
