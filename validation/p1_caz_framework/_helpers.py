@@ -13,17 +13,8 @@ P1_CONCEPTS = [
     "temporal_order", "sentiment", "negation", "moral_valence",
 ]
 
-# Canonical data source for P1 tests.
-#
-# Ideally this would prefer ROSETTA_PAPER_N250 (frozen HF SHA-pinned snapshot), but the
-# local paper_n250/ copy may be stale (pre-H200 extraction) and gives different S values
-# than what the paper claims are calibrated against.  Until paper_n250/ is refreshed from
-# HF (run: hf download james-ra-henry/Rosetta-Activations --include 'paper_n250/*'), use
-# models/ as primary.  models/ was overwritten by RCP v1 N=1415, but separation curves
-# have converged — CAZ peak layers and detection counts match the H200 N=250 paper values.
-#
-# Once paper_n250/ is refreshed, flip the order to [ROSETTA_PAPER_N250, ROSETTA_MODELS].
-P1_MODELS_SEARCH: list[Path] = [p for p in [ROSETTA_MODELS, ROSETTA_PAPER_N250] if p.exists()]
+# paper_n250/ is the canonical frozen H200 N=250 extraction; models/ is the live rcp_v1 fallback.
+P1_MODELS_SEARCH: list[Path] = [p for p in [ROSETTA_PAPER_N250, ROSETTA_MODELS] if p.exists()]
 # Convenience reference for skip messages
 P1_MODELS_ROOT = P1_MODELS_SEARCH[0] if P1_MODELS_SEARCH else ROSETTA_PAPER_N250
 
