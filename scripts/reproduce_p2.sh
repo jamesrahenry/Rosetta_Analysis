@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
 # reproduce_p2.sh — Paper 2 (GEM) end-to-end reproduction
 #
-# Runs CAZ extraction for the P2 corpus, builds GEMs, runs handoff-vs-peak
-# ablation across all model × concept pairs, then aggregates results.
+# Re-extracts from HF live models, builds GEMs, runs handoff-vs-peak ablation,
+# then aggregates results. Produces numbers identical to the published paper
+# when run with the same N and model revisions (N=250, revisions in provenance.json).
 #
-# P2 corpus: 29 base models (Appendix A), 17 concepts, N=250 pairs.
-# Paper stats are derived from whatever data this script produces — run with
-# more models or pairs and the numbers update accordingly.
+# Canonical frozen dataset: james-ra-henry/Rosetta-Activations paper_n250/
+# Extraction output: ~/rosetta_data/models/ (read by the aggregate step)
+# Aggregate script (p2_reporting.sh) reads from paper_n250 by default.
+#
+# P2 corpus: 23 models (Appendix A), 17 concepts, N=250 pairs.
 #
 # Usage:
 #   ./scripts/reproduce_p2.sh                       # full corpus

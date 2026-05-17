@@ -2,13 +2,14 @@
 # p2_reporting.sh — P2 CPU reporting (runs after GPU extraction is complete).
 #
 # Aggregates GEM ablation results, regenerates figures, and runs all CPU-side
-# analysis steps. Data source is ~/rosetta_data/models/ (live extraction dir
-# on GPU host); paper_n250/ is the frozen snapshot used by reproduce_p2.sh.
+# analysis steps. Data source is paper_n250/ (frozen HF snapshot); scripts
+# default to ROSETTA_PAPER_N250 when --models-dir is not passed.
 #
 # Usage:
-#   ./scripts/p2_reporting.sh        # standard — reads from ~/rosetta_data/models/
+#   ./scripts/p2_reporting.sh        # standard — reads from paper_n250/
 #
 # Written: 2026-05-15 UTC
+# Updated: 2026-05-17 UTC — reads from paper_n250 (not live models dir)
 
 set -euo pipefail
 
@@ -29,13 +30,11 @@ log "P2 reporting start"
 log "aggregate_gem_results..."
 $UV gem/aggregate_gem_results.py \
     --width 1 \
-    --models-dir ~/rosetta_data/models/ \
     --out-dir ~/rosetta_data/results/CAZ_GEM/
 
 # 2. EEC figure
 log "viz_gem_eec_fig1..."
 $UV viz/viz_gem_eec_fig1.py \
-    --models-dir ~/rosetta_data/models/ \
     --out-dir ~/rosetta_data/results/gem_figures/
 
 # 3. EEC table 2 data
