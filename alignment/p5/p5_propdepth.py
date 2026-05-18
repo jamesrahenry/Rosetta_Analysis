@@ -97,6 +97,25 @@ def depth_layer(n_layers: int, frac: float) -> int:
     return int(np.clip(round(frac * (n_layers - 1)), 0, n_layers - 1))
 
 
+def get_family(name: str) -> str:
+    """Return a family label for cross-family filtering."""
+    n = name.lower()
+    if "pythia" in n:     return "pythia"
+    if "gpt_neo" in n:    return "gpt_neo"
+    if "opt_" in n:       return "opt"
+    if "gpt2" in n:       return "gpt2"
+    if "gemma_2" in n:    return "gemma2"
+    if "gemma_4" in n:    return "gemma4"
+    if "llama_3.1" in n:  return "llama31"
+    if "llama_3.2" in n:  return "llama32"
+    if "phi" in n:        return "phi"
+    if "mixtral" in n:    return "mixtral"
+    if "mistral" in n:    return "mistral"
+    if "qwen" in n:       return "qwen25"
+    if "falcon" in n:     return "falcon"
+    return "unknown"
+
+
 def main():
     import argparse
     ap = argparse.ArgumentParser()
@@ -106,6 +125,10 @@ def main():
                     help="Comma-separated proportional depths, e.g. '0.3,0.5,0.7'")
     ap.add_argument("--out-name", type=str, default="p5_propdepth_samedim_results.json",
                     help="Output filename (allows running multiple depth sets without clobbering)")
+    ap.add_argument("--cross-family", action="store_true",
+                    help="Exclude same-family model pairs (removes base/instruct and scale-ladder siblings)")
+    ap.add_argument("--exclude-models", type=str, default="",
+                    help="Comma-separated model dir names to exclude (e.g. EleutherAI_pythia_1b)")
     args = ap.parse_args()
 
     global DEPTHS, DATA_ROOT, OUT_DIR
@@ -113,10 +136,13 @@ def main():
     DATA_ROOT = args.data_root
     OUT_DIR = args.out_dir
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    log.info("data_root=%s  out_dir=%s  depths=%s", DATA_ROOT, OUT_DIR, DEPTHS)
+    exclude_set = {m.strip() for m in args.exclude_models.split(",") if m.strip()}
+    log.info("data_root=%s  out_dir=%s  depths=%s  cross_family=%s  exclude=%s",
+             DATA_ROOT, OUT_DIR, DEPTHS, args.cross_family, exclude_set)
 
-    model_dirs = sorted(p for p in DATA_ROOT.iterdir() if p.is_dir())
-    log.info("Found %d model dirs", len(model_dirs))
+    model_dirs = sorted(p for p in DATA_ROOT.iterdir() if p.is_dir()
+                        and p.name not in exclude_set)
+    log.info("Found %d model dirs (after exclusions)", len(model_dirs))
 
     # store[name][concept] = dom_vec dict
     store: dict[str, dict[str, dict]] = {}
@@ -137,12 +163,16 @@ def main():
         by_dim[any_c["hidden_dim"]].append(name)
 
     pair_results = []
+    skipped_within_family = 0
 
     for dim, names in sorted(by_dim.items()):
         if len(names) < 2:
             continue
         log.info("dim %d: %d models — %s", dim, len(names), names)
         for name_a, name_b in permutations(names, 2):
+            if args.cross_family and get_family(name_a) == get_family(name_b):
+                skipped_within_family += 1
+                continue
             cm_a, cm_b = store[name_a], store[name_b]
 
             for held in CONCEPTS:
@@ -213,6 +243,8 @@ def main():
                 })
 
     log.info("Total pair × concept observations: %d", len(pair_results))
+    if args.cross_family:
+        log.info("Skipped %d within-family ordered pairs", skipped_within_family)
 
     if not pair_results:
         log.error("No pairs.")
@@ -306,6 +338,9 @@ def main():
         "written": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
         "method": ("proportional-depth depth-matched alignment, same-dim "
                    "only, zero-PCA; LOCO fit on non-held all-layer dom_vectors"),
+        "cross_family_only": args.cross_family,
+        "excluded_models": sorted(exclude_set),
+        "skipped_within_family_pairs": skipped_within_family,
         "depths": DEPTHS,
         "n_bootstrap": N_BOOTSTRAP,
         "rng_seed": RNG_SEED,
