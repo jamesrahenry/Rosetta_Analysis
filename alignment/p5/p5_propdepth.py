@@ -129,6 +129,8 @@ def main():
                     help="Exclude same-family model pairs (removes base/instruct and scale-ladder siblings)")
     ap.add_argument("--exclude-models", type=str, default="",
                     help="Comma-separated model dir names to exclude (e.g. EleutherAI_pythia_1b)")
+    ap.add_argument("--no-rotation", action="store_true",
+                    help="Skip Procrustes rotation (use raw DOM vectors); depth-stratification null condition")
     args = ap.parse_args()
 
     global DEPTHS, DATA_ROOT, OUT_DIR
@@ -197,12 +199,15 @@ def main():
                 A = np.vstack(blocks_a)
                 B = np.vstack(blocks_b)
 
-                try:
-                    R, _ = orthogonal_procrustes(B, A)
-                except Exception as e:
-                    log.warning("Procrustes fail %s × %s on %s: %s",
-                                name_a, name_b, held, e)
-                    continue
+                if args.no_rotation:
+                    R = np.eye(A.shape[1])
+                else:
+                    try:
+                        R, _ = orthogonal_procrustes(B, A)
+                    except Exception as e:
+                        log.warning("Procrustes fail %s × %s on %s: %s",
+                                    name_a, name_b, held, e)
+                        continue
 
                 dvA = cm_a[held]["dom_vecs"]
                 dvB = cm_b[held]["dom_vecs"]
@@ -339,6 +344,7 @@ def main():
         "method": ("proportional-depth depth-matched alignment, same-dim "
                    "only, zero-PCA; LOCO fit on non-held all-layer dom_vectors"),
         "cross_family_only": args.cross_family,
+        "no_rotation": args.no_rotation,
         "excluded_models": sorted(exclude_set),
         "skipped_within_family_pairs": skipped_within_family,
         "depths": DEPTHS,
