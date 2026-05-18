@@ -38,8 +38,8 @@ from rosetta_tools.gpu_utils import (
     release_model,
     purge_hf_cache,
 )
-from rosetta_tools.manifold_detector import _layer_census
-from rosetta_tools.feature_tracker import track_features
+from manifold_detector import _layer_census
+from feature_tracker import track_features
 from rosetta_tools.dataset import load_concept_pairs
 from rosetta_tools.paths import ROSETTA_RESULTS
 

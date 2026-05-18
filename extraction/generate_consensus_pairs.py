@@ -8,7 +8,7 @@ Usage:
 import sys
 from pathlib import Path
 
-from rosetta_tools.consensus_generator import main
+from consensus_generator import main
 
 if __name__ == "__main__":
     # Default output to caz_scaling/data/ when called from here

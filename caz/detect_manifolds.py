@@ -42,7 +42,7 @@ from rosetta_tools.gpu_utils import (
     purge_hf_cache,
     safe_batch_size,
 )
-from rosetta_tools.manifold_detector import layer_manifold_census
+from manifold_detector import layer_manifold_census
 from rosetta_tools.dataset import load_concept_pairs
 from rosetta_tools.paths import ROSETTA_RESULTS
 
@@ -242,7 +242,7 @@ def run_model(model_id: str, args) -> None:
                 layer_concept_dirs[concept] = vec
 
         # Run single-layer census
-        from rosetta_tools.manifold_detector import _layer_census
+        from manifold_detector import _layer_census
         result = _layer_census(
             layer_acts[layer_idx], layer_idx, layer_concept_dirs,
         )

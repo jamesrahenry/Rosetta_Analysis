@@ -65,7 +65,7 @@ from rosetta_tools.dataset import (
     load_concept_pairs, texts_by_label, CAZ_PRH_CONCEPTS,
 )
 import rosetta_tools as _rt
-from rosetta_tools.tracking import start_run, log_concept, end_run
+from tracking import start_run, log_concept, end_run
 
 logging.basicConfig(
     level=logging.INFO,
