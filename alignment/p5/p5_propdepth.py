@@ -358,9 +358,6 @@ def main():
         "pair_results": pair_results,
     }
 
-    out_path = OUT_DIR / args.out_name
-    out_path.write_text(json.dumps(output, indent=2))
-
     log.info("\n=== GRAND SUMMARY (proportional-depth, same-dim, zero-PCA) ===")
     log.info("  Observations: %d   pos delta: %d/%d",
              grand["n_observations"], grand["n_positive_delta"],
@@ -372,7 +369,13 @@ def main():
     log.info("  Mann-Whitney p (matched > mismatched): %.4e", grand["mannwhitney_p"])
     log.info("  Bootstrap 95%% CI on delta: [%.4f, %.4f]",
              *grand["bootstrap_ci_95"])
-    log.info("  Output: %s", out_path)
+
+    out_path = OUT_DIR / args.out_name
+    try:
+        out_path.write_text(json.dumps(output, indent=2))
+        log.info("  Output: %s", out_path)
+    except OSError as e:
+        log.error("  Could not write output file (%s) — results above are complete", e)
 
 
 if __name__ == "__main__":
