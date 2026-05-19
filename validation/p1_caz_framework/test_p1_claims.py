@@ -221,8 +221,10 @@ class TestP5DepthMatchedAlignment:
 # ============================================================================
 
 class TestP5NullTests:
-    """Paper §5.5: 'concept-specific (~61%) with a residual generic depth-region
-    component (~39%) confirmed by four orthogonal null tests.'"""
+    """Paper §5.5: four orthogonal null tests confirm the depth-stratification
+    signal is real, concept-specific, and Procrustes-dependent. For cross-family
+    model pairs, the no-rotation condition yields Δ ≈ 0 (chance-level); the
+    depth signal is fully PRH-specific [Henry, 2026d §3.7]."""
 
     def test_random_vector_null_near_chance(self, p5_battery):
         """Test 2 (random_vector): replacing concept directions with random vectors
@@ -235,8 +237,8 @@ class TestP5NullTests:
             f"Random-vector null: mean_delta = {t2['mean_delta']:.4f}, expected ~0"
 
     def test_concept_shuffle_null_substantially_smaller(self, p5_battery, p5_samedim):
-        """Test 3 (concept_shuffle): shuffling concept labels should reduce the
-        effect; residual reflects generic depth-region component only."""
+        """Test 3 (concept_shuffle): shuffling concept labels should substantially
+        reduce the effect, confirming concept-specificity."""
         t3 = p5_battery["test_3_concept_shuffle"]["per_seed"][0]
         real_delta = p5_samedim["summary"]["grand"]["mean_delta"]
         shuffle_delta = t3["mean_delta"]
@@ -244,9 +246,9 @@ class TestP5NullTests:
             f"Concept shuffle delta ({shuffle_delta:.4f}) is not < 50% of real ({real_delta:.4f})"
 
     def test_no_rotation_null_below_real(self, p5_battery, p5_samedim):
-        """Test 4 (no_rotation): without Procrustes rotation the effect reflects only
-        the generic depth-region component (~0.103). Real effect must substantially
-        exceed the no-rotation baseline."""
+        """Test 4 (no_rotation): without Procrustes rotation the full-corpus baseline
+        is ~0.103 (within-family training-dynamics contribution). Real effect must
+        substantially exceed this — Procrustes gain expected > 0.03."""
         t4 = p5_battery["test_4_no_rotation"]
         real_delta = p5_samedim["summary"]["grand"]["mean_delta"]
         no_rot_delta = t4["mean_delta"]
