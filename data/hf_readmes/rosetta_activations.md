@@ -15,14 +15,10 @@ size_categories:
 
 # Rosetta Activations
 
-*Updated: 2026-05-18 23:29 UTC*
+*Updated: 2026-05-18 21:15 UTC*
 
-Contrastive activation extractions for 17 semantic concepts across 33+ language models,
-supporting cross-architecture mechanistic interpretability research. Each model directory
-contains raw activation arrays (`.npy`) for probe training and Procrustes alignment,
-alongside JSON analysis results (CAZ separation curves, GEM handoff layers, ablation
-comparisons, and activation patching) — everything needed to reproduce paper results
-without re-running inference.
+Contrastive activation extractions for 17 semantic concepts across 46 language models,
+supporting cross-architecture mechanistic interpretability research.
 
 Companion concept pair corpus: [jamesrahenry/Rosetta_Concept_Pairs](https://github.com/jamesrahenry/Rosetta_Concept_Pairs)
 
@@ -30,15 +26,66 @@ Papers: forthcoming
 
 ---
 
-## Two Data Splits
+## Dataset Structure
 
-### `paper_n250/` — Frozen paper-reproducibility data (N=250)
+```
+Rosetta-Activations/
+├── paper_n250/           # Frozen N=250 paper-reproducibility data
+│   └── {Model_Name}/
+│       ├── calibration_{concept}.npy           # Peak-layer activations (N=250)
+│       ├── calibration_alllayer_{concept}.npy  # All-layer activations (N=250)
+│       ├── calibration_{concept}_meta.json     # Extraction provenance
+│       ├── caz_{concept}.json                  # CAZ analysis
+│       ├── gem_{concept}.json                  # GEM analysis
+│       ├── ablation_gem_{concept}.json         # Ablation results
+│       ├── ablation_random_{concept}.json      # Random-direction null
+│       └── patch_{concept}.json               # Activation patching
+│
+├── rcp_v1/               # Raw N=2000 activations (38 of 46 models; see note)
+│   └── {Model_Name}/
+│       ├── calibration_{concept}.npy           # Peak-layer activations (N=2000)
+│       ├── calibration_alllayer_{concept}.npy  # All-layer activations (N=2000)
+│       └── calibration_{concept}_meta.json     # Extraction provenance
+│
+├── models/               # N=2000 analysis results (46 models)
+│   └── {Model_Name}/
+│       ├── caz_{concept}.json                  # CAZ analysis (separation curves, peak layer)
+│       ├── gem_{concept}.json                  # GEM analysis (handoff layers, EEC)
+│       ├── ablation_gem_{concept}.json         # Handoff vs peak ablation
+│       ├── ablation_random_{concept}.json      # Random-direction ablation null
+│       └── patch_{concept}.json               # Activation patching
+│
+└── model_snapshots/      # Earlier versioned archive (pre-rcp_v1)
+    └── {Model_Name}_{tag}/
+        └── caz_{concept}.json
+```
 
-The canonical dataset for reproducing Papers 1–4. Frozen at N=250 pairs per concept
-across 33 models. All paper numbers were computed from this split. Use this for
-reproduce runs.
+### Coverage note
+
+`rcp_v1/` contains raw activation arrays for **38 of 46 models**. The following 8 models
+have analysis results in `models/` but raw `.npy` files pending re-extraction:
+
+| Model | Size | Status |
+|-------|------|--------|
+| `facebook_opt_350m` | 350M | pending |
+| `openai_community_gpt2_medium` | 345M | pending |
+| `Qwen_Qwen2.5_32B` | 32B | hardware-blocked |
+| `google_gemma_4_26B_A4B` | 26B | hardware-blocked |
+| `google_gemma_4_26B_A4B_it` | 26B | hardware-blocked |
+| `meta_llama_Llama_3.1_70B` | 70B | hardware-blocked |
+| `tiiuae_falcon_40b` | 40B | hardware-blocked |
+| `Qwen_Qwen2.5_72B` | 72B | hardware-blocked |
+
+For paper reproducibility, use `paper_n250/` — it is complete for all 46 models.
+
+---
+
+## Quick Start
+
+### Reproduce paper results (N=250)
 
 ```bash
+pip install huggingface_hub
 hf download james-ra-henry/Rosetta-Activations \
     --repo-type dataset \
     --local-dir ~/rosetta_data/ \
@@ -46,50 +93,29 @@ hf download james-ra-henry/Rosetta-Activations \
 rsync -a ~/rosetta_data/paper_n250/ ~/rosetta_data/models/
 ```
 
-### `models/` (rcp_v1) — Full-resolution corpus (N=2000)
+### Download N=2000 raw activations
 
-Larger extraction for future analysis and RCP v2 development. N=2000 pairs per concept,
-same 17 concepts, expanded model set (~33+ models depending on availability).
-
-**Probe-overfitting warning:** Peak-layer selection in the rcp_v1 `.npy` files was
-determined by CAZ analysis run on the same 2000-pair corpus. If you train a linear probe
-directly on these arrays without a held-out validation split, peak-layer selection and
-probe weights are correlated to the same data — standard overfitting applies. Always
-partition `calibration_{concept}.npy` into train/val before fitting probes. The fixed
-250-pair train/val split from `paper_n250/` is the cleanest baseline for comparisons.
-
----
-
-## Dataset Structure
-
+```bash
+hf download james-ra-henry/Rosetta-Activations \
+    --repo-type dataset \
+    --local-dir ~/rosetta_data/ \
+    --include "rcp_v1/*"
 ```
-Rosetta-Activations/
-├── paper_n250/                    # Frozen N=250 paper data (recommended for reproducibility)
-│   └── {Model_Name}/
-│       └── (same file layout as models/ below)
-│
-├── models/                        # rcp_v1 — full-resolution N=2000 extractions
-│   └── {Model_Name}/
-│       ├── calibration_{concept}.npy           # Peak-layer activations
-│       ├── calibration_alllayer_{concept}.npy  # All-layer activations
-│       ├── calibration_{concept}_meta.json     # Full extraction provenance
-│       ├── caz_{concept}.json                  # CAZ analysis (separation curves, peak layer)
-│       ├── gem_{concept}.json                  # GEM analysis (handoff layers, EEC)
-│       ├── ablation_gem_{concept}.json         # Handoff vs peak ablation results
-│       ├── ablation_random_{concept}.json      # Random-direction ablation null
-│       └── patch_{concept}.json               # Activation patching results
-│
-└── model_snapshots/               # Earlier versioned archive (pre-rcp_v1)
-    └── {Model_Name}_{tag}/        # e.g. EleutherAI_pythia_6.9b_p1n100
-        └── caz_{concept}.json
+
+### Download N=2000 analysis results
+
+```bash
+hf download james-ra-henry/Rosetta-Activations \
+    --repo-type dataset \
+    --local-dir ~/rosetta_data/ \
+    --include "models/*"
 ```
 
 ---
 
 ## Array Format
 
-### `calibration_{concept}.npy`
-Peak-layer contrastive activations.
+### `calibration_{concept}.npy` — Peak-layer activations
 
 | Property | Value |
 |----------|-------|
@@ -99,19 +125,18 @@ Peak-layer contrastive activations.
 
 ```python
 import numpy as np
-# paper_n250 example (250 pairs)
+# paper_n250 (250 pairs)
 acts = np.load("paper_n250/EleutherAI_pythia_6.9b/calibration_agency.npy")
-# acts.shape → (500, 4096)   [250 pairs × 2, hidden_dim]
-pos = acts[:250]   # positive (agentive) examples
-neg = acts[250:]   # negative (non-agentive) examples
+# acts.shape → (500, 4096)
+pos = acts[:250]   # agentive
+neg = acts[250:]   # non-agentive
 
-# rcp_v1 example (2000 pairs)
-acts = np.load("models/EleutherAI_pythia_6.9b/calibration_agency.npy")
-# acts.shape → (4000, 4096)   [2000 pairs × 2, hidden_dim]
+# rcp_v1 (2000 pairs)
+acts = np.load("rcp_v1/EleutherAI_pythia_6.9b/calibration_agency.npy")
+# acts.shape → (4000, 4096)
 ```
 
-### `calibration_alllayer_{concept}.npy`
-All-layer activations for depth-matched analysis (P5 proportional-depth tests).
+### `calibration_alllayer_{concept}.npy` — All-layer activations
 
 | Property | Value |
 |----------|-------|
@@ -121,13 +146,13 @@ All-layer activations for depth-matched analysis (P5 proportional-depth tests).
 
 ```python
 acts = np.load("paper_n250/EleutherAI_pythia_6.9b/calibration_alllayer_agency.npy")
-# acts.shape → (32, 500, 4096)   [n_layers, 2*n_pairs, hidden_dim]
-layer_15 = acts[15]   # all samples at layer 15
+# acts.shape → (32, 500, 4096)
+layer_15 = acts[15]
 ```
 
-### `calibration_{concept}_meta.json`
-Full extraction provenance — model architecture, corpus version, pair IDs used,
-extraction parameters, array shapes and layout.
+**Probe-overfitting warning (rcp_v1):** Peak-layer selection in rcp_v1 was determined
+by CAZ analysis on the same 2000-pair corpus. Always partition into train/val before
+fitting probes. The paper_n250 fixed split is the cleanest baseline.
 
 ---
 
@@ -155,34 +180,33 @@ extraction parameters, array shapes and layout.
 
 ---
 
-## Models (paper_n250 — 33 models)
+## Models (46 total)
 
-| Family | Models |
-|--------|--------|
-| Pythia (MHA) | 70M, 160M, 410M, 1B, 1.4B, 2.8B, 6.9B, 12B |
-| GPT-2 (MHA) | base (124M), medium, large, xl |
-| OPT (MHA) | 125M, 350M, 1.3B, 2.7B, 6.7B |
-| Qwen2.5 (GQA) | 0.5B, 0.5B-Instruct, 1.5B, 1.5B-Instruct, 3B, 3B-Instruct, 7B, 7B-Instruct, 14B |
-| Llama 3.1 (GQA) | 8B, 8B-Instruct |
-| Llama 3.2 (GQA) | 1B, 3B |
-| Mistral (GQA) | 7B-v0.3 |
-| Gemma-2 (Alternating MHA/GQA) | 2B, 9B |
-| Phi (Other) | Phi-2 |
-
-The rcp_v1 `models/` tree covers the same core set plus additional instruct variants and
-larger models (Llama-3.2-1B-Instruct, Llama-3.2-3B-Instruct, Mistral-7B-Instruct-v0.3,
-Gemma-2-2B-it, Gemma-2-9B-it, Qwen2.5-32B, GPT-Neo-125M, and others).
+| Family | Models | paper_n250 | rcp_v1 .npy | models/ JSON |
+|--------|--------|:---:|:---:|:---:|
+| Pythia (MHA) | 70M, 160M, 410M, 1B, 1.4B, 2.8B, 6.9B, 12B | ✓ | ✓ | ✓ |
+| GPT-2 (MHA) | base, medium, large, xl | ✓ | medium pending | ✓ |
+| GPT-Neo (MHA) | 125M | ✓ | ✓ | ✓ |
+| OPT (MHA) | 125M, 350M, 1.3B, 2.7B, 6.7B | ✓ | 350M pending | ✓ |
+| Qwen2.5 (GQA) | 0.5B/Instruct, 1.5B/Instruct, 3B/Instruct, 7B/Instruct, 14B, 32B, 72B | ✓ | 32B/72B HW-blocked | ✓ |
+| Llama 3.1 (GQA) | 8B, 8B-Instruct, 70B | ✓ | 70B HW-blocked | ✓ |
+| Llama 3.2 (GQA) | 1B, 1B-Instruct, 3B, 3B-Instruct | ✓ | ✓ | ✓ |
+| Mistral (GQA) | 7B-v0.3, 7B-Instruct-v0.3 | ✓ | ✓ | ✓ |
+| Gemma-2 (Alt MHA/GQA) | 2B, 2B-it, 9B, 9B-it | ✓ | ✓ | ✓ |
+| Gemma-4 (MoE) | 26B-A4B, 26B-A4B-it | — | HW-blocked | ✓ |
+| Phi (Other) | Phi-2 | ✓ | ✓ | ✓ |
+| Falcon (Other) | 40B | — | HW-blocked | ✓ |
 
 ---
 
 ## Extraction Details
 
-| | paper_n250 | rcp_v1 (models/) |
+| | paper_n250 | rcp_v1 |
 |--|--|--|
 | Pairs per concept | 250 | 2000 |
 | Split | Fixed train/val (Rosetta_Concept_Pairs v1) | Full corpus, no fixed split |
 | Use for | Paper reproducibility | Future analysis, RCP v2 |
-| Probe note | Clean baseline | See overfitting warning above |
+| Content | `.npy` + all JSON | `.npy` + `_meta.json` only |
 
 - **Pooling**: last non-padding token (both splits)
 - **Pair corpus**: [jamesrahenry/Rosetta_Concept_Pairs](https://github.com/jamesrahenry/Rosetta_Concept_Pairs)
