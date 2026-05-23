@@ -54,6 +54,7 @@ from rosetta_tools.caz import compute_separation
 from rosetta_tools.dataset import load_concept_pairs, texts_by_label
 from rosetta_tools.extraction import extract_layer_activations
 from rosetta_tools.gem import discover_concepts, discover_base_models, find_extraction_dir
+from rosetta_tools.models import vram_gb as _registry_vram
 from rosetta_tools.gpu_utils import (
     get_device, get_dtype, log_device_info, log_vram,
     release_model, purge_hf_cache, NumpyJSONEncoder, load_causal_lm,
@@ -275,7 +276,12 @@ def run_model(model_id: str) -> None:
 
     device = get_device()
     dtype = get_dtype(device)
-    model, tokenizer = load_causal_lm(model_id, device, dtype)
+    n_gpus = torch.cuda.device_count() if torch.cuda.is_available() else 0
+    model_vram = _registry_vram(model_id)
+    device_map = "auto" if (model_vram > 20.0 and n_gpus > 1) else None
+    if device_map:
+        log.info("Large model (%.0f GB bf16): device_map='auto' across %d GPUs", model_vram, n_gpus)
+    model, tokenizer = load_causal_lm(model_id, device, dtype, device_map=device_map)
     log_device_info(device, dtype)
 
     results = []
