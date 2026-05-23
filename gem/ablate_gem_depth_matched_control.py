@@ -292,7 +292,7 @@ def run_model(model_id: str) -> None:
             results.append(r)
 
     release_model(model)
-    purge_hf_cache(model_id)
+    purge_hf_cache(model_id, min_free_gb=0.0)
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps({"model_id": model_id, "results": results}, cls=NumpyJSONEncoder, indent=2))
