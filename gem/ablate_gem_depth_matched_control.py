@@ -274,7 +274,7 @@ def run_model(model_id: str) -> None:
     device = get_device()
     dtype = get_dtype(device)
     model, tokenizer = load_causal_lm(model_id, device, dtype)
-    log_device_info(device)
+    log_device_info(device, dtype)
 
     results = []
     for concept in discover_concepts(extraction_dir):
