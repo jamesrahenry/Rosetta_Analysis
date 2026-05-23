@@ -71,11 +71,6 @@ OUT_DIR = ROSETTA_RESULTS / "gem_depth_matched_control"
 N_PAIRS = 250
 BATCH_SIZE = 4
 
-MODELSCOPE_ROOT = Path.home() / ".cache" / "modelscope" / "hub" / "models"
-LOCAL_MODEL_PATHS: dict[str, Path] = {
-    "google/gemma-2-9b":         MODELSCOPE_ROOT / "google"    / "gemma-2-9b",
-    "mistralai/Mistral-7B-v0.3": MODELSCOPE_ROOT / "mistralai" / "Mistral-7B-v0.3",
-}
 
 
 # ---------------------------------------------------------------------------
@@ -277,8 +272,8 @@ def run_model(model_id: str) -> None:
         return
 
     device = get_device()
-    local_path = LOCAL_MODEL_PATHS.get(model_id)
-    model, tokenizer = load_causal_lm(model_id, device=device, local_path=local_path)
+    dtype = get_dtype()
+    model, tokenizer = load_causal_lm(model_id, device, dtype)
     log_device_info(device)
 
     results = []
