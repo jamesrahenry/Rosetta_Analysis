@@ -168,9 +168,11 @@ def run_concept(
     handoff_layer = int(node["handoff_layer"])
     caz_end = int(node.get("caz_end", handoff_layer - 1))
 
-    # Stored handoff ablation result
+    # Stored handoff ablation result — support both new (comparison dict) and old (handoff dict) formats
     comp = abl.get("comparison", {})
     handoff_retained_pct = comp.get("handoff_retained_pct")
+    if handoff_retained_pct is None:
+        handoff_retained_pct = abl.get("handoff", {}).get("final_retained_pct")
     if handoff_retained_pct is None:
         log.info("  Skipping %s — no handoff_retained_pct in stored ablation", concept)
         return None
