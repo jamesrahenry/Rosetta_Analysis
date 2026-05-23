@@ -78,7 +78,18 @@ import numpy as np
 import pandas as pd
 
 from rosetta_tools.alignment import align_and_score, compute_procrustes_rotation, apply_rotation, cosine_similarity
-from rosetta_tools.viz_style import CONCEPT_META, CONCEPT_ORDER
+try:
+    from rosetta_tools.viz_style import CONCEPT_META
+    _CONCEPTS_FROM_META = list(CONCEPT_META.keys())
+except ImportError:
+    _CONCEPTS_FROM_META = [
+        "temporal_order", "causation", "agency",
+        "negation", "plurality",
+        "sentiment", "moral_valence", "urgency", "threat_severity",
+        "certainty", "credibility", "deception", "sarcasm",
+        "specificity", "formality",
+        "authorization", "exfiltration",
+    ]
 from rosetta_tools.paths import ROSETTA_RESULTS, ROSETTA_MODELS
 
 logging.basicConfig(
@@ -89,7 +100,7 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 RESULTS_ROOT = ROSETTA_RESULTS
-CONCEPTS = list(CONCEPT_META.keys())
+CONCEPTS = _CONCEPTS_FROM_META
 
 
 # ---------------------------------------------------------------------------
