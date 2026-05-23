@@ -272,7 +272,7 @@ def run_model(model_id: str) -> None:
         return
 
     device = get_device()
-    dtype = get_dtype()
+    dtype = get_dtype(device)
     model, tokenizer = load_causal_lm(model_id, device, dtype)
     log_device_info(device)
 
