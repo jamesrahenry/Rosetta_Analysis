@@ -279,6 +279,29 @@ def run_model(model_id: str) -> None:
     n_gpus = torch.cuda.device_count() if torch.cuda.is_available() else 0
     model_vram = _registry_vram(model_id)
     device_map = "auto" if (model_vram > 20.0 and n_gpus > 1) else None
+
+    # _init_weights in transformers calls .float() on weights, creating a transient
+    # float32 copy (~2× bf16 size). Skip models where this would OOM.
+    if n_gpus > 0:
+        total_vram_gb = sum(
+            torch.cuda.get_device_properties(i).total_memory / (1024 ** 3)
+            for i in range(n_gpus)
+        )
+        if model_vram * 2.1 > total_vram_gb:
+            log.warning(
+                "Skipping %s — %.0f GB bf16 requires ~%.0f GB peak (float32 init); "
+                "only %.0f GB available across %d GPU(s)",
+                model_id, model_vram, model_vram * 2.1, total_vram_gb, n_gpus,
+            )
+            OUT_DIR.mkdir(parents=True, exist_ok=True)
+            out_path.write_text(json.dumps(
+                {"model_id": model_id, "results": [], "skipped_model": True,
+                 "reason": "vram_insufficient", "model_vram_gb": model_vram,
+                 "total_vram_gb": total_vram_gb},
+                indent=2,
+            ))
+            return
+
     if device_map:
         log.info("Large model (%.0f GB bf16): device_map='auto' across %d GPUs", model_vram, n_gpus)
     model, tokenizer = load_causal_lm(model_id, device, dtype, device_map=device_map)
