@@ -254,7 +254,8 @@ def global_sweep(
 # ---------------------------------------------------------------------------
 
 def run_model(model_id: str, concepts: list[str], args) -> None:
-    extraction_dir = find_extraction_dir(model_id)
+    models_root = Path(args.models_root) if getattr(args, "models_root", None) else None
+    extraction_dir = find_extraction_dir(model_id, models_root=models_root)
     if extraction_dir is None:
         log.error("No extraction results for %s — skipping", model_id)
         return
@@ -342,12 +343,15 @@ def main():
     parser.add_argument("--dtype", choices=["auto", "bfloat16", "float32"], default="auto")
     parser.add_argument("--overwrite", action="store_true", help="Rerun even if output already exists")
     parser.add_argument("--no-clean-cache", action="store_true")
+    parser.add_argument("--models-root", type=str, default=None,
+                        help="Override ROSETTA_MODELS root (e.g. ~/rosetta_data/paper_n250)")
 
     args = parser.parse_args()
     concepts = args.concepts or CONCEPTS
 
+    models_root_path = Path(args.models_root).expanduser() if args.models_root else None
     if args.all:
-        models = discover_all_models()
+        models = discover_all_models(models_root=models_root_path)
         log.info("Found %d models", len(models))
     else:
         models = [args.model]
