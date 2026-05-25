@@ -278,7 +278,7 @@ def run_model(model_id: str) -> None:
     dtype = get_dtype(device)
     n_gpus = torch.cuda.device_count() if torch.cuda.is_available() else 0
     model_vram = _registry_vram(model_id)
-    device_map = "auto" if (model_vram > 20.0 and n_gpus > 1) else None
+    device_map = None  # may be overridden below once per-GPU VRAM is known
 
     # _init_weights in transformers calls .float() on weights, creating a transient
     # float32 copy (~2× bf16 size). Skip models where this would OOM.
@@ -287,6 +287,10 @@ def run_model(model_id: str) -> None:
             torch.cuda.get_device_properties(i).total_memory / (1024 ** 3)
             for i in range(n_gpus)
         )
+        per_gpu_vram = total_vram_gb / n_gpus
+        # Use device_map="auto" when model exceeds 80% of a single GPU — avoids
+        # OOM during inference (e.g. gemma-2-9b logit softcapping at 18/22 GB).
+        device_map = "auto" if (model_vram > per_gpu_vram * 0.8 and n_gpus > 1) else None
         if model_vram * 2.1 > total_vram_gb:
             log.warning(
                 "Skipping %s — %.0f GB bf16 requires ~%.0f GB peak (float32 init); "
