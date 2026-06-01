@@ -66,7 +66,10 @@ from rosetta_tools.gpu_utils import (  # noqa: E402
 )
 from rosetta_tools.extraction import extract_layer_activations  # noqa: E402
 from rosetta_tools.caz import compute_separation, LayerMetrics, find_caz_boundary  # noqa: E402
-from rosetta_tools.ablation import DirectionalAblator, get_transformer_layers  # noqa: E402
+from rosetta_tools.ablation import (  # noqa: E402
+    DirectionalAblator, DirectionalShifter, get_transformer_layers,
+    kl_divergence_from_logits,
+)
 from rosetta_tools.dataset import load_concept_pairs, texts_by_label  # noqa: E402
 from rosetta_tools.gem import find_extraction_dir, discover_all_models, _model_slug  # noqa: E402
 from rosetta_tools.models import vram_gb as _registry_vram  # noqa: E402
@@ -84,16 +87,16 @@ log = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 def measure_all_layer_separation(
-    model, tokenizer, layers: list, layer_idx: int, direction: np.ndarray,
+    model, tokenizer, layers: list, layer_idx: int, make_ctx,
     pos_texts: list[str], neg_texts: list[str], device: str, batch_size: int,
     n_tracked: int,
 ) -> list[float]:
-    """Ablate the concept direction at ``layer_idx``; return Fisher separation at
-    every tracked layer L' (0..n_tracked-1).  One forward pass per class yields all
-    downstream readouts for free."""
-    dtype = torch.bfloat16 if next(model.parameters()).dtype == torch.bfloat16 else torch.float32
-
-    with DirectionalAblator(layers[layer_idx], direction, dtype=dtype):
+    """Intervene at ``layer_idx`` (via the ``make_ctx`` context-manager factory);
+    return Fisher separation at every tracked layer L' (0..n_tracked-1). One forward
+    pass per class yields all downstream readouts for free. ``make_ctx`` builds the
+    intervention (DirectionalAblator for subtractive, DirectionalShifter for additive)
+    given the layer module."""
+    with make_ctx(layers[layer_idx]):
         pos_acts = extract_layer_activations(
             model, tokenizer, pos_texts, device=device, batch_size=batch_size, pool="last"
         )
@@ -113,13 +116,66 @@ def measure_all_layer_separation(
     return seps
 
 
+def measure_kl_with_ctx(
+    model, tokenizer, layers: list, layer_idx: int, make_ctx,
+    baseline_logits: list, prompts: list[str], device: str,
+) -> float:
+    """Mean output-KL under the intervention built by ``make_ctx`` at ``layer_idx``.
+    Generalises ablate.measure_kl_with_ablation to any intervention context manager."""
+    kl_values = []
+    with make_ctx(layers[layer_idx]):
+        for i, prompt in enumerate(prompts):
+            enc = tokenizer(prompt, return_tensors="pt").to(device)
+            with torch.no_grad():
+                out = model(**enc)
+            kl_values.append(kl_divergence_from_logits(baseline_logits[i], out.logits[0, -1, :].cpu()))
+    return float(np.mean(kl_values))
+
+
 # ---------------------------------------------------------------------------
 # Per-concept propagation sweep
 # ---------------------------------------------------------------------------
 
+def _sweep_one_intervention(
+    model, tokenizer, layers, metrics_raw, n_tracked, n_layers,
+    pos_texts, neg_texts, baseline_logits, base_last,
+    make_ctx_for, label, device, batch_size,
+) -> dict:
+    """Run the L×L′ sweep for ONE intervention. ``make_ctx_for(L, dom, raw_distance)``
+    returns a context-manager factory that takes a layer module."""
+    matrix, output_kl, same_layer, recovery_ratio = [], [], [], []
+    for L in range(n_tracked):
+        if device == "cuda":
+            torch.cuda.empty_cache()
+        dom = np.array(metrics_raw[L]["dom_vector"], dtype=np.float64)
+        raw_distance = float(metrics_raw[L].get("raw_distance", 0.0))
+        make_ctx = make_ctx_for(L, dom, raw_distance)
+        t0 = time.time()
+
+        row = measure_all_layer_separation(
+            model, tokenizer, layers, L, make_ctx,
+            pos_texts, neg_texts, device, batch_size, n_tracked,
+        )
+        kl = measure_kl_with_ctx(
+            model, tokenizer, layers, L, make_ctx, baseline_logits, CAPABILITY_PROMPTS, device,
+        )
+        matrix.append(row)
+        output_kl.append(round(float(kl), 6))
+        same_layer.append(row[L] if L < len(row) else float("nan"))
+        last = row[-1] if row and not np.isnan(row[-1]) else float("nan")
+        recovery_ratio.append(round(last / base_last, 4) if not np.isnan(last) else float("nan"))
+        log.info(
+            "  [%s] @L%d (%.0f%%): same-layer S=%.3f  final S=%.3f (recov %.2f)  kl=%.4f  (%.1fs)",
+            label, L, 100.0 * L / n_layers, same_layer[L],
+            row[-1] if row else float("nan"), recovery_ratio[L], kl, time.time() - t0,
+        )
+    return {"propagation_matrix": matrix, "same_layer_separation": same_layer,
+            "recovery_ratio": recovery_ratio, "output_kl": output_kl}
+
+
 def propagation_sweep(
     model, tokenizer, concept: str, extraction_data: dict,
-    device: str, n_pairs: int, batch_size: int,
+    device: str, n_pairs: int, batch_size: int, intervention: str = "ablate",
 ) -> dict:
     pairs = load_concept_pairs(concept, n=n_pairs or 250)
     pos_texts, neg_texts = texts_by_label(pairs)
@@ -141,7 +197,7 @@ def propagation_sweep(
     except Exception:
         boundary = None
 
-    # baseline output logits for KL (no ablation)
+    # baseline output logits for KL (no intervention)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     baseline_logits = []
@@ -151,41 +207,10 @@ def propagation_sweep(
             out = model(**enc)
         baseline_logits.append(out.logits[0, -1, :].cpu())
 
-    matrix: list[list[float]] = []      # matrix[L] = separation at every L' after ablating @ L
-    output_kl: list[float] = []
-    same_layer: list[float] = []        # the ablate.py-equivalent number (diagonal)
-    recovery_ratio: list[float] = []    # sep at last tracked layer after ablating@L / baseline last
-
     base_last = baseline_seps[-1] if baseline_seps[-1] > 0 else 1.0
+    mdtype = torch.bfloat16 if next(model.parameters()).dtype == torch.bfloat16 else torch.float32
 
-    for L in range(n_tracked):
-        if device == "cuda":
-            torch.cuda.empty_cache()
-        dom = np.array(metrics_raw[L]["dom_vector"], dtype=np.float64)
-        t0 = time.time()
-
-        row = measure_all_layer_separation(
-            model, tokenizer, layers, L, dom,
-            pos_texts, neg_texts, device, batch_size, n_tracked,
-        )
-        kl = measure_kl_with_ablation(
-            model, tokenizer, layers, L, dom, baseline_logits, CAPABILITY_PROMPTS, device,
-        )
-
-        matrix.append(row)
-        output_kl.append(round(float(kl), 6))
-        same_layer.append(row[L] if L < len(row) else float("nan"))
-        last = row[-1] if row and not np.isnan(row[-1]) else float("nan")
-        recovery_ratio.append(round(last / base_last, 4) if not np.isnan(last) else float("nan"))
-
-        elapsed = time.time() - t0
-        log.info(
-            "  ablate@L%d (%.0f%%): same-layer S=%.3f  final S=%.3f (recov %.2f)  kl=%.4f  (%.1fs)",
-            L, 100.0 * L / n_layers, same_layer[L],
-            row[-1] if row else float("nan"), recovery_ratio[L], kl, elapsed,
-        )
-
-    return {
+    result = {
         "concept": concept,
         "model_id": extraction_data["model_id"],
         "n_layers": n_layers,
@@ -197,27 +222,57 @@ def propagation_sweep(
         "caz_end": boundary.caz_end if boundary else None,
         "baseline_separation": baseline_seps,
         "ablation_layers": list(range(n_tracked)),
-        "propagation_matrix": matrix,     # [ablate_layer][readout_layer]
-        "same_layer_separation": same_layer,
-        "recovery_ratio": recovery_ratio,
-        "output_kl": output_kl,
         "direction": "per_layer_dom_vector",
-        "intervention": "unimodal_orthogonal_projection",
     }
+
+    if intervention == "add":
+        # Additive "trench": shift activations by ±1 class-gap along the concept axis.
+        # dom_vector is unit-norm; raw_distance is the centroid gap, so shift = ±raw·dom.
+        result["intervention"] = "additive_centroid_gap"
+        result["signs"] = ["pos", "neg"]
+        for sign, tag in ((+1.0, "pos"), (-1.0, "neg")):
+            log.info("  --- additive sweep (%s, coeff=%+d × gap) ---", tag, int(sign))
+            def make_ctx_for(L, dom, raw, _sign=sign):
+                shift = _sign * raw * dom                 # raw centroid difference, signed
+                return lambda layer: DirectionalShifter(layer, shift, coefficient=1.0, dtype=mdtype)
+            sub = _sweep_one_intervention(
+                model, tokenizer, layers, metrics_raw, n_tracked, n_layers,
+                pos_texts, neg_texts, baseline_logits, base_last,
+                make_ctx_for, f"add{'+' if sign > 0 else '-'}", device, batch_size,
+            )
+            result[f"propagation_matrix_{tag}"] = sub["propagation_matrix"]
+            result[f"same_layer_separation_{tag}"] = sub["same_layer_separation"]
+            result[f"recovery_ratio_{tag}"] = sub["recovery_ratio"]
+            result[f"output_kl_{tag}"] = sub["output_kl"]
+    else:
+        result["intervention"] = "unimodal_orthogonal_projection"
+        def make_ctx_for(L, dom, raw):
+            return lambda layer: DirectionalAblator(layer, dom, dtype=mdtype)
+        sub = _sweep_one_intervention(
+            model, tokenizer, layers, metrics_raw, n_tracked, n_layers,
+            pos_texts, neg_texts, baseline_logits, base_last,
+            make_ctx_for, "ablate", device, batch_size,
+        )
+        result.update(sub)   # propagation_matrix, same_layer_separation, recovery_ratio, output_kl
+
+    return result
 
 
 # ---------------------------------------------------------------------------
 # Driver
 # ---------------------------------------------------------------------------
 
-def _result_valid(extraction_dir: Path, model_id: str, concept: str, n_pairs: int) -> bool:
-    p = extraction_dir / f"ablation_propagation_{concept}.json"
+def _result_valid(extraction_dir: Path, model_id: str, concept: str, n_pairs: int,
+                  prefix: str = "ablation_propagation") -> bool:
+    p = extraction_dir / f"{prefix}_{concept}.json"
     if not p.exists():
         return False
     try:
         d = json.loads(p.read_text())
+        # additive results carry propagation_matrix_pos instead of propagation_matrix
+        has_matrix = bool(d.get("propagation_matrix") or d.get("propagation_matrix_pos"))
         return (d.get("model_id") == model_id and d.get("concept") == concept
-                and d.get("n_pairs", 0) >= n_pairs and bool(d.get("propagation_matrix")))
+                and d.get("n_pairs", 0) >= n_pairs and has_matrix)
     except (json.JSONDecodeError, OSError):
         return False
 
@@ -238,8 +293,12 @@ def run_model(model_id: str, concepts: list[str], args) -> None:
         log.error("No extraction results for %s — run extract.py first", model_id)
         return
 
+    # Additive results live in a separate file family so they never collide with the
+    # subtractive matrices (and the HF upload glob picks both up).
+    prefix = "ablation_propagation_add" if args.intervention == "add" else "ablation_propagation"
+
     if not args.force:
-        todo = [c for c in concepts if not _result_valid(extraction_dir, model_id, c, args.n_pairs)]
+        todo = [c for c in concepts if not _result_valid(extraction_dir, model_id, c, args.n_pairs, prefix)]
         if not todo:
             log.info("=== Propagation: %s — all %d concepts done, skipping ===", model_id, len(concepts))
             return
@@ -295,13 +354,14 @@ def run_model(model_id: str, concepts: list[str], args) -> None:
         result = propagation_sweep(
             model, tokenizer, concept, extraction_data,
             device=device, n_pairs=n_pairs, batch_size=args.batch_size,
+            intervention=args.intervention,
         )
 
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        out_path = extraction_dir / f"ablation_propagation_{concept}_{ts}.json"
+        out_path = extraction_dir / f"{prefix}_{concept}_{ts}.json"
         with open(out_path, "w") as f:
             json.dump(result, f, indent=2)
-        latest = extraction_dir / f"ablation_propagation_{concept}.json"
+        latest = extraction_dir / f"{prefix}_{concept}.json"
         if latest.is_symlink() or latest.exists():
             latest.unlink()
         latest.symlink_to(out_path.name)
@@ -333,6 +393,9 @@ def parse_args():
     p.add_argument("--models-dir", type=str, default=None,
                    help="Root of per-model extraction dirs (default ~/rosetta_data/paper_n250; "
                         "pass ~/rosetta_data/models/ on GPU hosts)")
+    p.add_argument("--intervention", choices=["ablate", "add"], default="ablate",
+                   help="ablate = subtractive orthogonal projection (default); "
+                        "add = additive ±1-gap shift (both signs) — the 'trench'")
     p.add_argument("--n-pairs", type=int, default=250)
     p.add_argument("--batch-size", type=int, default=4)
     p.add_argument("--device", choices=["cuda", "cpu", "auto"], default="auto")
