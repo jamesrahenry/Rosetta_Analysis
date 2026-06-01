@@ -86,17 +86,33 @@ log = logging.getLogger(__name__)
 # All-layer separation under one ablation
 # ---------------------------------------------------------------------------
 
+class _MultiAblator:
+    """Stack DirectionalAblator hooks at several layers simultaneously (one direction
+    per layer) — the continuous trajectory intervention along the GEM tube. Empty
+    layer set = no-op (baseline)."""
+    def __init__(self, layers, idxs, dirs, dtype):
+        self._layers, self._idxs, self._dirs, self._dtype = layers, idxs, dirs, dtype
+        self._stack = None
+    def __enter__(self):
+        from contextlib import ExitStack
+        self._stack = ExitStack()
+        for li, d in zip(self._idxs, self._dirs):
+            self._stack.enter_context(DirectionalAblator(self._layers[li], d, dtype=self._dtype))
+        return self
+    def __exit__(self, *a):
+        if self._stack is not None:
+            self._stack.close(); self._stack = None
+
+
 def measure_all_layer_separation(
-    model, tokenizer, layers: list, layer_idx: int, make_ctx,
+    model, tokenizer, make_ctx,
     pos_texts: list[str], neg_texts: list[str], device: str, batch_size: int,
     n_tracked: int,
 ) -> list[float]:
-    """Intervene at ``layer_idx`` (via the ``make_ctx`` context-manager factory);
-    return Fisher separation at every tracked layer L' (0..n_tracked-1). One forward
-    pass per class yields all downstream readouts for free. ``make_ctx`` builds the
-    intervention (DirectionalAblator for subtractive, DirectionalShifter for additive)
-    given the layer module."""
-    with make_ctx(layers[layer_idx]):
+    """Apply the intervention built by the no-arg factory ``make_ctx`` (which hooks one
+    or many layers), then return Fisher separation at every tracked layer L' (0..n_tracked-1).
+    One forward pass per class yields all downstream readouts for free."""
+    with make_ctx():
         pos_acts = extract_layer_activations(
             model, tokenizer, pos_texts, device=device, batch_size=batch_size, pool="last"
         )
@@ -117,13 +133,12 @@ def measure_all_layer_separation(
 
 
 def measure_kl_with_ctx(
-    model, tokenizer, layers: list, layer_idx: int, make_ctx,
-    baseline_logits: list, prompts: list[str], device: str,
+    model, tokenizer, make_ctx, baseline_logits: list, prompts: list[str], device: str,
 ) -> float:
-    """Mean output-KL under the intervention built by ``make_ctx`` at ``layer_idx``.
-    Generalises ablate.measure_kl_with_ablation to any intervention context manager."""
+    """Mean output-KL under the intervention built by the no-arg factory ``make_ctx``.
+    Generalises ablate.measure_kl_with_ablation to any (single- or multi-layer) intervention."""
     kl_values = []
-    with make_ctx(layers[layer_idx]):
+    with make_ctx():
         for i, prompt in enumerate(prompts):
             enc = tokenizer(prompt, return_tensors="pt").to(device)
             with torch.no_grad():
@@ -142,7 +157,7 @@ def _sweep_one_intervention(
     make_ctx_for, label, device, batch_size,
 ) -> dict:
     """Run the L×L′ sweep for ONE intervention. ``make_ctx_for(L, dom, raw_distance)``
-    returns a context-manager factory that takes a layer module."""
+    returns a no-arg context-manager factory (which may hook one or many layers)."""
     matrix, output_kl, same_layer, recovery_ratio = [], [], [], []
     for L in range(n_tracked):
         if device == "cuda":
@@ -153,11 +168,11 @@ def _sweep_one_intervention(
         t0 = time.time()
 
         row = measure_all_layer_separation(
-            model, tokenizer, layers, L, make_ctx,
+            model, tokenizer, make_ctx,
             pos_texts, neg_texts, device, batch_size, n_tracked,
         )
         kl = measure_kl_with_ctx(
-            model, tokenizer, layers, L, make_ctx, baseline_logits, CAPABILITY_PROMPTS, device,
+            model, tokenizer, make_ctx, baseline_logits, CAPABILITY_PROMPTS, device,
         )
         matrix.append(row)
         output_kl.append(round(float(kl), 6))
@@ -176,7 +191,7 @@ def _sweep_one_intervention(
 def propagation_sweep(
     model, tokenizer, concept: str, extraction_data: dict,
     device: str, n_pairs: int, batch_size: int, intervention: str = "ablate",
-    split: str = "train",
+    split: str = "train", traj_from: str = "caz",
 ) -> dict:
     pairs = load_concept_pairs(concept, n=n_pairs or 250, split=split)
     pos_texts, neg_texts = texts_by_label(pairs)
@@ -235,7 +250,7 @@ def propagation_sweep(
             log.info("  --- additive sweep (%s, coeff=%+d × gap) ---", tag, int(sign))
             def make_ctx_for(L, dom, raw, _sign=sign):
                 shift = _sign * raw * dom                 # raw centroid difference, signed
-                return lambda layer: DirectionalShifter(layer, shift, coefficient=1.0, dtype=mdtype)
+                return lambda: DirectionalShifter(layers[L], shift, coefficient=1.0, dtype=mdtype)
             sub = _sweep_one_intervention(
                 model, tokenizer, layers, metrics_raw, n_tracked, n_layers,
                 pos_texts, neg_texts, baseline_logits, base_last,
@@ -245,10 +260,31 @@ def propagation_sweep(
             result[f"same_layer_separation_{tag}"] = sub["same_layer_separation"]
             result[f"recovery_ratio_{tag}"] = sub["recovery_ratio"]
             result[f"output_kl_{tag}"] = sub["output_kl"]
+    elif intervention == "trajectory":
+        # Continuous ablation ALONG the GEM tube: row L ablates the per-layer dom_vector
+        # at every layer in [w_start .. L] simultaneously (prefix-cumulative). The last
+        # row = the ENTIRE GEM ablated at once. Tests whether suppressing the concept
+        # continuously prevents the downstream re-derivation that single-layer ablation
+        # leaves intact. w_start = caz_start ('caz') or 0 ('zero').
+        cs = boundary.caz_start if (boundary and boundary.caz_start is not None) else 0
+        w_start = 0 if traj_from == "zero" else max(0, int(cs))
+        result["intervention"] = "trajectory_cumulative_orthogonal_projection"
+        result["trajectory_from"] = w_start
+        all_doms = [np.array(metrics_raw[i]["dom_vector"], dtype=np.float64) for i in range(n_tracked)]
+        def make_ctx_for(L, dom, raw):
+            idxs = [i for i in range(w_start, L + 1)]      # tube span up to and including L
+            dirs = [all_doms[i] for i in idxs]
+            return lambda: _MultiAblator(layers, idxs, dirs, mdtype)
+        sub = _sweep_one_intervention(
+            model, tokenizer, layers, metrics_raw, n_tracked, n_layers,
+            pos_texts, neg_texts, baseline_logits, base_last,
+            make_ctx_for, f"traj[{w_start}..]", device, batch_size,
+        )
+        result.update(sub)   # row L = cumulative ablation of the tube [w_start..L]
     else:
         result["intervention"] = "unimodal_orthogonal_projection"
         def make_ctx_for(L, dom, raw):
-            return lambda layer: DirectionalAblator(layer, dom, dtype=mdtype)
+            return lambda: DirectionalAblator(layers[L], dom, dtype=mdtype)
         sub = _sweep_one_intervention(
             model, tokenizer, layers, metrics_raw, n_tracked, n_layers,
             pos_texts, neg_texts, baseline_logits, base_last,
@@ -294,9 +330,10 @@ def run_model(model_id: str, concepts: list[str], args) -> None:
         log.error("No extraction results for %s — run extract.py first", model_id)
         return
 
-    # Additive results live in a separate file family so they never collide with the
-    # subtractive matrices (and the HF upload glob picks both up).
-    prefix = "ablation_propagation_add" if args.intervention == "add" else "ablation_propagation"
+    # Each intervention writes a separate file family so they never collide
+    # (and the HF upload glob picks them all up).
+    prefix = {"add": "ablation_propagation_add",
+              "trajectory": "ablation_propagation_traj"}.get(args.intervention, "ablation_propagation")
 
     if not args.force:
         todo = [c for c in concepts if not _result_valid(extraction_dir, model_id, c, args.n_pairs, prefix)]
@@ -355,7 +392,7 @@ def run_model(model_id: str, concepts: list[str], args) -> None:
         result = propagation_sweep(
             model, tokenizer, concept, extraction_data,
             device=device, n_pairs=n_pairs, batch_size=args.batch_size,
-            intervention=args.intervention, split=args.split,
+            intervention=args.intervention, split=args.split, traj_from=args.trajectory_from,
         )
 
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -394,9 +431,14 @@ def parse_args():
     p.add_argument("--models-dir", type=str, default=None,
                    help="Root of per-model extraction dirs (default ~/rosetta_data/paper_n250; "
                         "pass ~/rosetta_data/models/ on GPU hosts)")
-    p.add_argument("--intervention", choices=["ablate", "add"], default="ablate",
-                   help="ablate = subtractive orthogonal projection (default); "
-                        "add = additive ±1-gap shift (both signs) — the 'trench'")
+    p.add_argument("--intervention", choices=["ablate", "add", "trajectory"], default="ablate",
+                   help="ablate = subtractive orthogonal projection at one layer (default); "
+                        "add = additive ±1-gap shift (both signs) — the 'trench'; "
+                        "trajectory = continuous cumulative ablation along the GEM tube "
+                        "(row L ablates [w_start..L]; last row = entire GEM)")
+    p.add_argument("--trajectory-from", choices=["caz", "zero"], default="caz",
+                   help="trajectory window start: 'caz' = caz_start (assembly window, default); "
+                        "'zero' = layer 0 (whole stack)")
     p.add_argument("--split", choices=["train", "validation", "all"], default="train",
                    help="Pair split; use 'all' for concepts outside the train/val split map (e.g. refusal)")
     p.add_argument("--n-pairs", type=int, default=250)
