@@ -176,8 +176,9 @@ def _sweep_one_intervention(
 def propagation_sweep(
     model, tokenizer, concept: str, extraction_data: dict,
     device: str, n_pairs: int, batch_size: int, intervention: str = "ablate",
+    split: str = "train",
 ) -> dict:
-    pairs = load_concept_pairs(concept, n=n_pairs or 250)
+    pairs = load_concept_pairs(concept, n=n_pairs or 250, split=split)
     pos_texts, neg_texts = texts_by_label(pairs)
 
     layers = get_transformer_layers(model)
@@ -354,7 +355,7 @@ def run_model(model_id: str, concepts: list[str], args) -> None:
         result = propagation_sweep(
             model, tokenizer, concept, extraction_data,
             device=device, n_pairs=n_pairs, batch_size=args.batch_size,
-            intervention=args.intervention,
+            intervention=args.intervention, split=args.split,
         )
 
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -396,6 +397,8 @@ def parse_args():
     p.add_argument("--intervention", choices=["ablate", "add"], default="ablate",
                    help="ablate = subtractive orthogonal projection (default); "
                         "add = additive ±1-gap shift (both signs) — the 'trench'")
+    p.add_argument("--split", choices=["train", "validation", "all"], default="train",
+                   help="Pair split; use 'all' for concepts outside the train/val split map (e.g. refusal)")
     p.add_argument("--n-pairs", type=int, default=250)
     p.add_argument("--batch-size", type=int, default=4)
     p.add_argument("--device", choices=["cuda", "cpu", "auto"], default="auto")
