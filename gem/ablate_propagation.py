@@ -68,7 +68,8 @@ from rosetta_tools.extraction import extract_layer_activations  # noqa: E402
 from rosetta_tools.caz import compute_separation, LayerMetrics, find_caz_boundary  # noqa: E402
 from rosetta_tools.ablation import DirectionalAblator, get_transformer_layers  # noqa: E402
 from rosetta_tools.dataset import load_concept_pairs, texts_by_label  # noqa: E402
-from rosetta_tools.gem import find_extraction_dir, discover_all_models  # noqa: E402
+from rosetta_tools.gem import find_extraction_dir, discover_all_models, _model_slug  # noqa: E402
+from rosetta_tools.models import vram_gb as _registry_vram  # noqa: E402
 
 logging.basicConfig(
     level=logging.INFO,
@@ -225,6 +226,15 @@ def run_model(model_id: str, concepts: list[str], args) -> None:
     models_root = Path(args.models_dir) if getattr(args, "models_dir", None) else None
     extraction_dir = find_extraction_dir(model_id, models_root)
     if extraction_dir is None:
+        # Fallback for caz-only downloads: the propagation job fetches just caz_*.json,
+        # which has no run_summary.json (the gate find_extraction_dir requires). We only
+        # need the per-layer caz files (dom_vectors), so accept a slug dir that has them.
+        root = models_root or Path("~/rosetta_data/paper_n250").expanduser()
+        cand = root / _model_slug(model_id)
+        if cand.is_dir() and any(cand.glob("caz_*.json")):
+            extraction_dir = cand
+            log.info("Using caz-only extraction dir (no run_summary.json): %s", cand)
+    if extraction_dir is None:
         log.error("No extraction results for %s — run extract.py first", model_id)
         return
 
@@ -246,7 +256,17 @@ def run_model(model_id: str, concepts: list[str], args) -> None:
         dtype = torch.float32
     log_device_info(device, dtype)
 
-    model, tokenizer = load_causal_lm(model_id, device, dtype)
+    # Shard large models across GPUs, or they OOM at load on a single card (pythia-12b
+    # is 24 GB bf16 > one 20 GB GPU). load_causal_lm upgrades device_map='auto' to
+    # 'balanced' internally (even split + activation headroom, no disk offload).
+    n_gpus = torch.cuda.device_count() if torch.cuda.is_available() else 0
+    single_gpu_limit = (torch.cuda.get_device_properties(0).total_memory / 1e9 - 4.0) if n_gpus > 0 else 0
+    device_map = "auto" if (_registry_vram(model_id) > single_gpu_limit and n_gpus > 1) else None
+    if device_map:
+        log.info("Large model (%.0f GB bf16 > %.0f GB single-GPU limit): sharding across %d GPUs",
+                 _registry_vram(model_id), single_gpu_limit, n_gpus)
+
+    model, tokenizer = load_causal_lm(model_id, device, dtype, device_map=device_map)
     log_vram("after model load")
 
     if device == "cuda":
