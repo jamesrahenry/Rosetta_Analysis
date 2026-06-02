@@ -824,11 +824,23 @@ def parse_args():
 
 def main():
     args = parse_args()
-    from rosetta_tools.dataset import ALL_CONCEPTS
+    from rosetta_tools.dataset import ALL_CONCEPTS, _concepts_root
     concepts = args.concepts or DEFAULT_CONCEPTS
-    unknown = [c for c in concepts if c not in ALL_CONCEPTS]
+
+    def _has_pairs_file(c: str) -> bool:
+        # Accept ad-hoc concepts sourced from an external pipeline (e.g. 'refusal'
+        # from concept-evasion-audit) as long as their consensus-pairs file is
+        # present under ROSETTA_CONCEPTS_ROOT — without adding them to the public
+        # rosetta_tools registry.
+        try:
+            return (_concepts_root() / f"{c}_consensus_pairs.jsonl").exists()
+        except Exception:
+            return False
+
+    unknown = [c for c in concepts if c not in ALL_CONCEPTS and not _has_pairs_file(c)]
     if unknown:
-        log.error("Unknown concepts: %s", unknown)
+        log.error("Unknown concepts (not in registry and no %s_consensus_pairs.jsonl "
+                  "under ROSETTA_CONCEPTS_ROOT): %s", "<concept>", unknown)
         sys.exit(1)
 
     if args.p1_corpus:
