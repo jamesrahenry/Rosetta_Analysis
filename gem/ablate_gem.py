@@ -651,24 +651,26 @@ def run_model(
         tokenizer.pad_token = tokenizer.eos_token
     n_gpus = torch.cuda.device_count() if torch.cuda.is_available() else 0
     model_vram = _registry_vram(model_id)
-    # Actual GPU VRAM minus headroom for ablation activations; falls back to L4 default.
-    single_gpu_vram = (torch.cuda.get_device_properties(0).total_memory / 1e9 - 8.0
-                       if torch.cuda.is_available() else 22.0)
+    # AGGREGATE GPU VRAM across all visible cards, minus an 8 GB headroom reserve
+    # for ablation activations; falls back to L4 default on CPU. We only auto-quantize
+    # when the model won't fit in bf16 across ALL GPUs combined — a model that fits via
+    # device_map should shard, not drop to 8-bit (which degrades ablation measurements).
+    if torch.cuda.is_available():
+        total_vram = sum(torch.cuda.get_device_properties(i).total_memory
+                         for i in range(n_gpus)) / 1e9 - 8.0
+    else:
+        total_vram = 22.0
 
-    # Models that don't fit on a single GPU in bf16 are loaded in 8-bit instead of
-    # being spread via device_map="auto". Activation patching across GPUs causes OOM
-    # even when the weights technically fit — ablation forward passes need 4-8 GB
-    # headroom on top of the model. 8-bit halves the footprint to a single GPU.
     explicit_8bit = getattr(args, "load_8bit", False)
-    auto_8bit = (not explicit_8bit) and model_vram > single_gpu_vram
+    auto_8bit = (not explicit_8bit) and model_vram > total_vram
     use_8bit = explicit_8bit or auto_8bit
 
     use_multi_gpu = (not use_8bit) and model_vram > 12.0 and n_gpus > 1
     effective_device_map = "auto" if use_multi_gpu else device
 
     if auto_8bit:
-        log.info("Large model (%.0f GB bf16 > %.0f GB single GPU): auto 8-bit on %s",
-                 model_vram, single_gpu_vram, device)
+        log.info("Large model (%.0f GB bf16 > %.0f GB total across %d GPUs): auto 8-bit on %s",
+                 model_vram, total_vram, n_gpus, device)
     elif use_multi_gpu:
         log.info("Large model (%.0f GB bf16): device_map='auto' across %d GPUs",
                  model_vram, n_gpus)

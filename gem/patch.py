@@ -401,10 +401,18 @@ def run_model(model_id: str, concepts: list[str], args) -> None:
 
     from rosetta_tools.models import vram_gb as _registry_vram
     model_vram = _registry_vram(model_id)
-    single_gpu_vram = (torch.cuda.get_device_properties(0).total_memory / 1e9 - 8.0
-                       if torch.cuda.is_available() else 22.0)
+    # Compare against AGGREGATE VRAM across all visible GPUs (minus an 8 GB
+    # activation/overhead reserve), not just GPU 0. A model that fits in bf16
+    # across multiple cards via device_map should shard, not auto-quantize —
+    # 8-bit degrades the activations a patch analysis measures. (multi-GPU host fix)
+    if torch.cuda.is_available():
+        n_gpus = torch.cuda.device_count()
+        total_vram = sum(torch.cuda.get_device_properties(i).total_memory
+                         for i in range(n_gpus)) / 1e9 - 8.0
+    else:
+        total_vram = 22.0
     explicit_8bit = args.load_in_8bit
-    auto_8bit = (not explicit_8bit) and model_vram > single_gpu_vram
+    auto_8bit = (not explicit_8bit) and model_vram > total_vram
     use_8bit = explicit_8bit or auto_8bit
 
     if use_8bit:
@@ -416,8 +424,8 @@ def run_model(model_id: str, concepts: list[str], args) -> None:
                 "  pip install accelerate bitsandbytes"
             ) from e
         if auto_8bit:
-            log.info("Large model (%.0f GB bf16 > %.0f GB single GPU): auto 8-bit",
-                     model_vram, single_gpu_vram)
+            log.info("Large model (%.0f GB bf16 > %.0f GB total across GPUs): auto 8-bit",
+                     model_vram, total_vram)
         model = load_model_with_retry(AutoModel, model_id, dtype=dtype,
                                       device=device, device_map="auto",
                                       load_in_8bit=True)
