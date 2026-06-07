@@ -793,7 +793,7 @@ def parse_args():
     parser.add_argument("--include-frontier", action="store_true",
                         help="With --all, also include frontier models")
     parser.add_argument("--concepts", nargs="+", default=None)
-    parser.add_argument("--n-pairs", type=int, default=200)
+    parser.add_argument("--n-pairs", type=int, default=250)
     parser.add_argument("--split", default="train", choices=["train", "validation", "all"],
                         help="Pair split to use. 'all' uses every available pair (for rcp_v1 HF extraction).")
     parser.add_argument("--out-root", type=str, default=None,
