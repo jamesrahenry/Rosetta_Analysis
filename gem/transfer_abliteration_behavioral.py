@@ -86,7 +86,7 @@ def main():
     ap.add_argument("--model", default="Qwen/Qwen2.5-7B-Instruct")
     ap.add_argument("--n-prompts", type=int, default=120)
     ap.add_argument("--max-new-tokens", type=int, default=48)
-    ap.add_argument("--batch-size", type=int, default=12)
+    ap.add_argument("--batch-size", type=int, default=8)
     ap.add_argument("--out-root", default=str(Path.home()/"rosetta_data"/"transfer_abliteration"))
     ap.add_argument("--token", default=None)
     args = ap.parse_args()
@@ -107,7 +107,7 @@ def main():
     print(f"loaded {len(goals)} harmful + {len(BENIGN)} benign prompts", flush=True)
 
     # 3. model
-    device, dtype = get_device(), get_dtype()
+    device = get_device(); dtype = get_dtype(device)
     model, tok = load_causal_lm(args.model, device, dtype)
     tok.padding_side = "left"
     if tok.pad_token is None: tok.pad_token = tok.eos_token
@@ -131,6 +131,7 @@ def main():
                                  for g, o in list(zip(goals, harm))[:8]],
         }
         print(f"[{name:9s}] harmful refusal_rate={harm_ref:.3f}  benign_coherence={ben_coh:.2f}", flush=True)
+        if torch.cuda.is_available(): torch.cuda.empty_cache()
 
     # 4. save + upload
     out = Path(args.out_root); out.mkdir(parents=True, exist_ok=True)
