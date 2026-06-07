@@ -2475,7 +2475,7 @@ requires-dist = [
     { name = "pandas", specifier = ">=2.0.0" },
     { name = "plotly", specifier = ">=5.18" },
     { name = "pytest", specifier = ">=8.0.0" },
-    { name = "rosetta-tools", git = "https://github.com/jamesrahenry/Rosetta_Tools.git?rev=v1.3.0" },
+    { name = "rosetta-tools", git = "https://github.com/jamesrahenry/Rosetta_Tools.git?rev=v1.4.0" },
     { name = "sae-lens", specifier = ">=4.0.0" },
     { name = "scikit-learn", specifier = ">=1.4.0" },
     { name = "scipy", specifier = ">=1.11.0" },
@@ -2485,8 +2485,8 @@ requires-dist = [
 
 [[package]]
 name = "rosetta-tools"
-version = "1.3.0"
-source = { git = "https://github.com/jamesrahenry/Rosetta_Tools.git?rev=v1.3.0#e11ea08b094ba8ea35565d8c4bf07ec73823d85e" }
+version = "1.3.1"
+source = { git = "https://github.com/jamesrahenry/Rosetta_Tools.git?rev=v1.4.0#be923f5b6fe58590ebff39f668b5c42ff4e7f844" }
 dependencies = [
     { name = "matplotlib" },
     { name = "numpy" },
