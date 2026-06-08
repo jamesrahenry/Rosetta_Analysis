@@ -509,6 +509,10 @@ def run_model(model_id: str, concepts: list[str], args, device_override: str | N
         p = out_dir / f"caz_{concept}.json"
         if not p.exists():
             return True
+        # A partial prior run may have caz_*.json (even at n>=requested) but be missing
+        # the calibration .npy probes (P4 needs calibration_alllayer). Don't skip those.
+        if not (out_dir / f"calibration_alllayer_{concept}.npy").exists():
+            return True
         try:
             data = json.loads(p.read_text())
             if current_split == "all" and data.get("split") == "all":
