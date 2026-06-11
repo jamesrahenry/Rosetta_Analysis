@@ -55,6 +55,7 @@ from rosetta_tools.ablation import (
 )
 from rosetta_tools.dataset import load_concept_pairs, texts_by_label
 from rosetta_tools.gem import find_extraction_dir, discover_all_models
+from rosetta_tools.models import vram_gb as _registry_vram
 from rosetta_tools.paths import ROSETTA_RESULTS
 from rosetta_tools.gpu_utils import load_causal_lm
 
@@ -388,8 +389,20 @@ def run_model(model_id: str, concepts: list[str], args) -> None:
         dtype = torch.float32
     log_device_info(device, dtype)
 
+    # Shard large models across GPUs (mirrors ablate_global_sweep.py /
+    # ablate_random_direction.py). Without this the sweep loads single-GPU and
+    # OOMs mid-forward on ~18GB models that leave no activation headroom —
+    # gemma-2-9b's 256k-vocab logits on a 20GB card, for instance.
+    n_gpus = torch.cuda.device_count() if torch.cuda.is_available() else 0
+    vram_free = (torch.cuda.get_device_properties(0).total_memory / 1e9) if n_gpus > 0 else 0
+    single_gpu_limit = vram_free - 4.0
+    device_map = "auto" if (_registry_vram(model_id) > single_gpu_limit and n_gpus > 1) else None
+    if device_map:
+        log.info("Large model (%.0f GB bf16 > %.0f GB single-GPU limit): device_map='auto' across %d GPUs",
+                 _registry_vram(model_id), single_gpu_limit, n_gpus)
+
     # Need CausalLM for logits (KL divergence measurement)
-    model, tokenizer = load_causal_lm(model_id, device, dtype)
+    model, tokenizer = load_causal_lm(model_id, device, dtype, device_map=device_map)
     log_vram("after model load")
 
     # Auto-reduce batch size if VRAM headroom is tight
