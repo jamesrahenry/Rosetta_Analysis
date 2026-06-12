@@ -202,6 +202,12 @@ def global_sweep(
     results_per_layer = []
     for layer_idx in range(n_layers):
         if device == "cuda":
+            # Drain in-flight async copies before freeing cached blocks. With a
+            # device_map-sharded model, activations cross GPUs on the copy
+            # engines; empty_cache() during an in-flight transfer frees the
+            # target pages and the CE faults (Xid 31 MMU fault, surfaces as
+            # "unspecified launch failure" — killed both gemma-2-9b sweeps).
+            torch.cuda.synchronize()
             torch.cuda.empty_cache()
         t0 = time.time()
         ablated_sep = measure_final_sep_with_ablation(
