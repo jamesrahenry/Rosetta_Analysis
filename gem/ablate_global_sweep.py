@@ -198,15 +198,19 @@ def global_sweep(
     )
     log.info("  Baseline final-layer separation: %.4f", baseline_sep)
 
+    # empty_cache between layers is OOM insurance for single-GPU runs only. On
+    # device_map-sharded models it is unnecessary (each GPU holds ~half the
+    # weights, ample headroom) and causes Xid 31 copy-engine MMU faults —
+    # accelerate's dispatch can still reference a block after empty_cache
+    # returns it to the driver. Killed three gemma-2-9b sweep runs at ~12h
+    # each; a synchronize() before the free did NOT prevent it (2026-06-12).
+    _dm = getattr(model, "hf_device_map", None)
+    sharded = bool(_dm) and len(set(_dm.values())) > 1
+
     # Sweep
     results_per_layer = []
     for layer_idx in range(n_layers):
-        if device == "cuda":
-            # Drain in-flight async copies before freeing cached blocks. With a
-            # device_map-sharded model, activations cross GPUs on the copy
-            # engines; empty_cache() during an in-flight transfer frees the
-            # target pages and the CE faults (Xid 31 MMU fault, surfaces as
-            # "unspecified launch failure" — killed both gemma-2-9b sweeps).
+        if device == "cuda" and not sharded:
             torch.cuda.synchronize()
             torch.cuda.empty_cache()
         t0 = time.time()
