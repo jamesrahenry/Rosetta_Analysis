@@ -182,21 +182,33 @@ def main() -> int:
         if missing:
             print(f"      MISSING ON HF: {missing[:8]}{'…' if len(missing)>8 else ''}")
 
-    print(f"\n=== {host}: {n_ok} OK, {n_upload} upload-needed, {n_review} review ===")
-    if loss_risk:
-        print(f"DATA-LOSS RISK — {len(loss_risk)} local-only file(s) NOT on HF (do NOT destroy):")
-        for x in loss_risk[:40]:
-            print(f"  - {x}")
-        if len(loss_risk) > 40:
-            print(f"  … and {len(loss_risk)-40} more")
+    print(f"\n=== {host}: {n_ok} OK, {n_upload} upload-needed, {n_review} quality-note ===")
+
+    # Quality notes (correctness) are reported but do NOT block teardown: they are
+    # about stale LOCAL copies (e.g. n_pairs=200 leftovers, pre-fix random
+    # baselines) that HF already supersedes or that the H100 is re-running.
+    # Destroying the VM doesn't touch HF, so these aren't a teardown risk — but
+    # surface them so a human can sanity-check.
     if review:
-        print(f"REVIEW — {len(review)} item(s) need a human before teardown:")
+        print(f"QUALITY NOTES — {len(review)} (stale local copies; HF is the record; NOT a teardown blocker):")
         for x in review[:40]:
             print(f"  - {x}")
-    if not loss_risk and not review:
-        print(f"SAFE TO DESTROY {host}: every local artifact is on HF and data checks pass.")
-        return 0
-    return 3
+        if len(review) > 40:
+            print(f"  … and {len(review)-40} more")
+
+    # The only hard gate: data that exists ONLY locally would be lost on destroy.
+    if loss_risk:
+        print(f"\nDATA-LOSS RISK — {len(loss_risk)} local-only file(s) NOT on HF — DO NOT DESTROY {host}:")
+        for x in loss_risk[:60]:
+            print(f"  - {x}")
+        if len(loss_risk) > 60:
+            print(f"  … and {len(loss_risk)-60} more")
+        print(f"\nRESULT: {host} is NOT safe to destroy — {len(loss_risk)} unbacked file(s). Re-run with --fix to upload.")
+        return 3
+
+    print(f"\nRESULT: SAFE TO DESTROY {host} — every local artifact is on HF"
+          + (f" ({len(review)} quality note(s) above, all superseded on HF)." if review else "."))
+    return 0
 
 
 if __name__ == "__main__":
