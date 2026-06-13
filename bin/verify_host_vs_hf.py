@@ -140,7 +140,12 @@ def main() -> int:
         hf_keys = set(hf or {})
 
         missing = sorted(k for k in lf if k not in hf_keys)
-        size_mm = sorted(k for k in lf if k in hf_keys and hf[k] != lf[k])
+        # Size differences are NOT a gate: local copies are written by different
+        # runs/cycles than what's on HF (float formatting, seed-fix), so they are
+        # essentially never byte-identical and HF is the record. Track a count for
+        # visibility only — a high count flags a model whose local copy diverged
+        # enough to be worth a manual look, but it never fails the run.
+        n_size_diff = sum(1 for k in lf if k in hf_keys and hf[k] != lf[k])
         probs = correctness(mdir)
 
         uploaded_now: list[str] = []
@@ -162,17 +167,15 @@ def main() -> int:
             n_upload += 1
             loss_risk += [f"{slug}/{m}" for m in missing]
             verdict = f"UPLOAD-NEEDED ({len(missing)} local-only file(s) not on HF)"
-        elif size_mm or probs:
+        elif probs:
             n_review += 1
             verdict = "REVIEW"
         else:
             n_ok += 1
             verdict = "OK" + (f" (uploaded {len(uploaded_now)})" if uploaded_now else "")
 
-        print(f"[{verdict:<22}] {slug:<40} local={len(lf):>4}f  hf={hf_state}")
-        if size_mm:
-            review += [f"{slug}/{m} (local={lf[m]} hf={hf[m]})" for m in size_mm]
-            print(f"      size-mismatch (NOT auto-fixed): {size_mm[:6]}{'…' if len(size_mm)>6 else ''}")
+        sd = f"  Δ{n_size_diff}" if n_size_diff else ""
+        print(f"[{verdict:<22}] {slug:<40} local={len(lf):>4}f  hf={hf_state}{sd}")
         for p in probs:
             review.append(f"{slug}: {p}")
             print(f"      correctness: {p}")
