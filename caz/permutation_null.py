@@ -258,7 +258,19 @@ def process_model(
                  model_id.split("/")[-1], ci + 1, len(concepts), concept)
 
         dataset_path = DATA_ROOT / CONCEPT_DATASETS[concept]
-        pairs = load_pairs(dataset_path)
+        if dataset_path.exists():
+            pairs = load_pairs(dataset_path)
+        elif concept != "sham":
+            # Public-repo reproducibility fallback: the per-concept *_pairs.jsonl
+            # files are not committed publicly; load the public consensus corpus
+            # (ROSETTA_CONCEPTS_ROOT / Rosetta_Concept_Pairs) instead.
+            from rosetta_tools.dataset import load_concept_pairs
+            pairs = load_concept_pairs(concept)
+        else:
+            raise FileNotFoundError(
+                f"{dataset_path} not found. Generate the sham control with "
+                "extraction/generate_sham_concept.py before running the sham null."
+            )
         n_pairs = len(pairs)
 
         # Build text list: [pos_0, neg_0, pos_1, neg_1, ...]

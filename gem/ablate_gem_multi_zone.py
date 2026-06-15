@@ -63,7 +63,7 @@ log = logging.getLogger(__name__)
 
 OUT_DIR = Path.home() / "rosetta_data" / "results" / "gem_multi_zone"
 
-N_PAIRS = 50
+N_PAIRS = 250  # P3 N=250 corpus (was 50 in the pre-rebuild draft)
 BATCH_SIZE = 4
 
 
