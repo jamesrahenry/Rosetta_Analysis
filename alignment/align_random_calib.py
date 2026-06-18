@@ -54,9 +54,24 @@ OUT_PATH = ROSETTA_DATA_ROOT / "results" / "prh_random_calib_null.json"
 
 # Concepts from the primary PRH analysis
 CONCEPTS = [
-    "certainty", "temporal_order", "credibility",
-    "causation", "moral_valence", "sentiment", "negation",
+    "agency", "authorization", "causation", "certainty", "credibility",
+    "deception", "exfiltration", "formality", "moral_valence", "negation",
+    "plurality", "sarcasm", "sentiment", "specificity", "temporal_order",
+    "threat_severity", "urgency",
 ]
+
+# Cross-family same-dim restriction + frontier exclusion, to match the primary
+# PRH population (P4 §3.1; cross-family clusters A–E, frontier F preserved).
+_FAMILIES = ["pythia", "gpt_neo", "opt_", "gpt2", "gemma_2", "gemma_4",
+             "llama_3.1", "llama_3.2", "phi", "mixtral", "mistral", "qwen", "falcon"]
+SKIP_MODELS = {"tiiuae_falcon_40b", "meta_llama_Llama_3.1_70B", "Qwen_Qwen2.5_72B"}
+
+def _family(slug: str) -> str:
+    s = slug.lower()
+    for k in _FAMILIES:
+        if k in s:
+            return k
+    return "?"
 
 # ---------------------------------------------------------------------------
 # Random corpus — 220 semantically neutral sentences.
@@ -421,7 +436,13 @@ def run_random_calib_null(n_random: int = 200, seed: int = 42, no_clean_cache: b
     # All unique models needed
     all_needed: dict[str, str] = {}  # slug → model_id
     for models in same_dim_groups.values():
+        fams_in_group = {_family(s) for s, _ in models if s not in SKIP_MODELS}
         for slug, model_id in models:
+            if slug in SKIP_MODELS:
+                continue
+            # only download models that have at least one cross-family same-dim partner
+            if len(fams_in_group - {_family(slug)}) == 0:
+                continue
             all_needed[slug] = model_id
 
     # Load concept peak layers and DOM vectors for all needed models
@@ -474,6 +495,10 @@ def run_random_calib_null(n_random: int = 200, seed: int = 42, no_clean_cache: b
         for i, src_slug in enumerate(slugs):
             for tgt_slug in slugs:
                 if src_slug == tgt_slug:
+                    continue
+                if src_slug in SKIP_MODELS or tgt_slug in SKIP_MODELS:
+                    continue
+                if _family(src_slug) == _family(tgt_slug):  # cross-family only
                     continue
 
                 for concept in CONCEPTS:
