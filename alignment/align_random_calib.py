@@ -28,7 +28,15 @@ from __future__ import annotations
 import gc
 import json
 import logging
+import os
 from pathlib import Path
+
+# Cap BLAS threads BEFORE numpy/scipy import — on many-core hosts OpenBLAS otherwise
+# spawns one thread per core, and the per-SVD thread overhead dominates the (small)
+# d×d Procrustes solves, dragging the alignment loop from minutes to hours.
+for _v in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS",
+           "NUMEXPR_NUM_THREADS", "VECLIB_MAXIMUM_THREADS"):
+    os.environ.setdefault(_v, "8")
 
 import numpy as np
 import torch
@@ -492,6 +500,8 @@ def run_random_calib_null(n_random: int = 200, seed: int = 42, no_clean_cache: b
 
     for hidden_dim, models in same_dim_groups.items():
         slugs = [s for s, _ in models]
+        log.info("  [align] dim %d: %d models, computing cross-family pairs...", hidden_dim, len(slugs))
+        before = sum(len(v) for v in results_by_concept.values())
         for i, src_slug in enumerate(slugs):
             for tgt_slug in slugs:
                 if src_slug == tgt_slug:
@@ -534,6 +544,9 @@ def run_random_calib_null(n_random: int = 200, seed: int = 42, no_clean_cache: b
                     except Exception as e:
                         log.warning("Procrustes failed %s/%s/%s: %s",
                                     concept, src_slug, tgt_slug, e)
+        after = sum(len(v) for v in results_by_concept.values())
+        log.info("  [align] dim %d done: +%d pair-concept alignments (total %d)",
+                 hidden_dim, after - before, after)
 
     # Summary
     concept_means = {
