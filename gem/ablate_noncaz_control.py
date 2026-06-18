@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import sys
 from pathlib import Path
 
@@ -37,8 +38,10 @@ log = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
 CAZ_ROOT = Path(__file__).resolve().parents[1]
-RESULTS  = CAZ_ROOT / "results"
-OUT_DIR  = RESULTS / "noncaz_control"
+# Results root holding per-model dirs with ablation_global_sweep_*.json (+ caz_*.json).
+# Override with NONCAZ_RESULTS to point at the published corpus (e.g. ~/rosetta_data/paper_n250).
+RESULTS  = Path(os.environ.get("NONCAZ_RESULTS", str(CAZ_ROOT / "results")))
+OUT_DIR  = Path(os.environ.get("NONCAZ_OUT", str(RESULTS / "noncaz_control")))
 
 NON_CAZ_WINDOW = 3   # layers must be > this far from any CAZ peak to count as non-CAZ
 
