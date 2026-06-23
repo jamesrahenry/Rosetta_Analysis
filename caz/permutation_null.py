@@ -64,16 +64,30 @@ log = logging.getLogger(__name__)
 RESULTS_ROOT = ROSETTA_RESULTS
 DATA_ROOT = Path(__file__).parent.parent / "data"
 
-CONCEPT_DATASETS = {
-    "credibility": "credibility_pairs.jsonl",
-    "negation": "negation_pairs.jsonl",
-    "sentiment": "sentiment_pairs.jsonl",
-    "causation": "causation_pairs.jsonl",
-    "certainty": "certainty_pairs.jsonl",
-    "moral_valence": "moral_valence_pairs.jsonl",
-    "temporal_order": "temporal_order_pairs.jsonl",
-    "sham": "sham_pairs.jsonl",
-}
+ALL_CONCEPTS = [
+    "credibility",
+    "negation",
+    "sentiment",
+    "causation",
+    "certainty",
+    "moral_valence",
+    "temporal_order",
+    "specificity",
+    "plurality",
+    "agency",
+    "formality",
+    "threat_severity",
+    "authorization",
+    "urgency",
+    "sarcasm",
+    "deception",
+    "exfiltration",
+    "sham",  # negative control — requires sham_pairs.jsonl or generate_sham_concept.py
+]
+
+# Legacy mapping kept for backwards compatibility with local files.
+# If the file does not exist, load_concept_pairs() is used as fallback.
+CONCEPT_DATASETS = {c: f"{c}_pairs.jsonl" for c in ALL_CONCEPTS}
 
 # Representative subset spanning architecture families and scales
 DEFAULT_MODELS = [
@@ -227,6 +241,7 @@ def process_model(
     batch_size: int,
     output_dir: Path,
     skip_done: bool,
+    n_pairs_cap: int | None = None,
 ):
     """Run permutation null for all concepts on one model."""
     model_slug = model_id.replace("/", "_")
@@ -260,17 +275,18 @@ def process_model(
         dataset_path = DATA_ROOT / CONCEPT_DATASETS[concept]
         if dataset_path.exists():
             pairs = load_pairs(dataset_path)
-        elif concept != "sham":
-            # Public-repo reproducibility fallback: the per-concept *_pairs.jsonl
-            # files are not committed publicly; load the public consensus corpus
-            # (ROSETTA_CONCEPTS_ROOT / Rosetta_Concept_Pairs) instead.
-            from rosetta_tools.dataset import load_concept_pairs
-            pairs = load_concept_pairs(concept)
-        else:
+            if n_pairs_cap is not None:
+                pairs = pairs[:n_pairs_cap]
+        elif concept == "sham":
             raise FileNotFoundError(
-                f"{dataset_path} not found. Generate the sham control with "
+                f"{dataset_path} not found. Generate the sham control dataset with "
                 "extraction/generate_sham_concept.py before running the sham null."
             )
+        else:
+            # Public-repo reproducibility fallback: load the public consensus corpus
+            # (ROSETTA_CONCEPTS_ROOT / Rosetta_Concept_Pairs).
+            from rosetta_tools.dataset import load_concept_pairs
+            pairs = load_concept_pairs(concept, n=n_pairs_cap)
         n_pairs = len(pairs)
 
         # Build text list: [pos_0, neg_0, pos_1, neg_1, ...]
@@ -411,12 +427,15 @@ def main():
     parser.add_argument("--all", action="store_true",
                         help="Run all 26 base models")
     parser.add_argument("--n-perms", type=int, default=100,
-                        help="Number of permutations per model×concept")
+                        help="Number of permutations per model×concept (default: 100)")
+    parser.add_argument("--n-pairs", type=int, default=250,
+                        help="Number of contrastive pairs per concept (default: 250)")
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--dtype", default="auto",
                         choices=["auto", "float16", "bfloat16", "float32"])
     parser.add_argument("--concepts", nargs="+",
-                        help="Subset of concepts to test")
+                        help="Subset of concepts to test (default: all 17 semantic concepts; "
+                             "pass --concepts sham to include the sham control)")
     parser.add_argument("--skip-done", action="store_true",
                         help="Skip model×concept pairs with existing results")
     parser.add_argument("--aggregate-only", action="store_true",
@@ -442,7 +461,8 @@ def main():
     else:
         dtype = torch.float32
 
-    concepts = args.concepts or list(CONCEPT_DATASETS.keys())
+    # Default: all 17 semantic concepts (excludes sham unless explicitly requested)
+    concepts = args.concepts or [c for c in ALL_CONCEPTS if c != "sham"]
 
     if args.all:
         models = ALL_MODELS
@@ -460,6 +480,7 @@ def main():
             process_model(
                 model_id, concepts, args.n_perms,
                 device, dtype, args.batch_size, output_dir, args.skip_done,
+                n_pairs_cap=args.n_pairs,
             )
         except Exception as e:
             log.error("Failed on %s: %s", model_id, e, exc_info=True)

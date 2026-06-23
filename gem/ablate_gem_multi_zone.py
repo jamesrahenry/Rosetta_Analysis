@@ -63,7 +63,6 @@ log = logging.getLogger(__name__)
 
 OUT_DIR = Path.home() / "rosetta_data" / "results" / "gem_multi_zone"
 
-N_PAIRS = 250  # P3 N=250 corpus (was 50 in the pre-rebuild draft)
 BATCH_SIZE = 4
 
 
@@ -100,7 +99,7 @@ def measure_final_sep(model, tokenizer, pos_texts, neg_texts, device,
 # ---------------------------------------------------------------------------
 
 def run_concept(model, tokenizer, concept: str, extraction_dir: Path,
-                device: str) -> dict | None:
+                device: str, n_pairs: int = 250) -> dict | None:
     gem_path = extraction_dir / f"gem_{concept}.json"
     abl_path = extraction_dir / f"ablation_gem_{concept}.json"
     if not gem_path.exists():
@@ -111,7 +110,7 @@ def run_concept(model, tokenizer, concept: str, extraction_dir: Path,
     if n_nodes == 0:
         return None
 
-    pairs = load_concept_pairs(concept, n=N_PAIRS)
+    pairs = load_concept_pairs(concept, n=n_pairs)
     pos_texts, neg_texts = texts_by_label(pairs)
 
     # Load existing upstream-only result if available
@@ -259,7 +258,8 @@ def run_model(model_id: str, args) -> None:
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     results = []
     for concept in discover_concepts(extraction_dir):
-        r = run_concept(model, tokenizer, concept, extraction_dir, device)
+        r = run_concept(model, tokenizer, concept, extraction_dir, device,
+                        n_pairs=args.n_pairs)
         if r:
             r["model_id"] = model_id
             results.append(r)
@@ -295,6 +295,8 @@ def main() -> None:
     parser.add_argument("--device", choices=["cuda", "cpu", "auto"], default="auto")
     parser.add_argument("--dtype", choices=["auto", "bfloat16", "float32"], default="auto")
     parser.add_argument("--batch-size", type=int, default=4)
+    parser.add_argument("--n-pairs", type=int, default=250,
+                        help="Number of contrastive pairs per concept (default: 250)")
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--no-clean-cache", action="store_true")
     args = parser.parse_args()

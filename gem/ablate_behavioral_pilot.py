@@ -200,6 +200,196 @@ BEHAVIORAL_PROBES = [
         "pos_token": " arrived",
         "neg_token": " departed",
     },
+    # --- specificity ---
+    {
+        "concept": "specificity",
+        "prefix": "She requested the exact model number, serial number, and purchase date — a highly",
+        "pos_token": " specific",
+        "neg_token": " vague",
+    },
+    {
+        "concept": "specificity",
+        "prefix": "He gave a rough answer with no supporting numbers, which was",
+        "pos_token": " imprecise",
+        "neg_token": " precise",
+    },
+    {
+        "concept": "specificity",
+        "prefix": "The contract specified the exact delivery address, time, and party responsible — nothing was left",
+        "pos_token": " ambiguous",
+        "neg_token": " detailed",
+    },
+    # --- plurality ---
+    {
+        "concept": "plurality",
+        "prefix": "Three scientists and two engineers attended the workshop. They",
+        "pos_token": " discussed",
+        "neg_token": " discusses",
+    },
+    {
+        "concept": "plurality",
+        "prefix": "The single remaining sample was damaged. It",
+        "pos_token": " was",
+        "neg_token": " were",
+    },
+    {
+        "concept": "plurality",
+        "prefix": "The group of students submitted their assignments together. Each of them",
+        "pos_token": " received",
+        "neg_token": " receive",
+    },
+    # --- agency ---
+    {
+        "concept": "agency",
+        "prefix": "She decided to take matters into her own hands and independently",
+        "pos_token": " acted",
+        "neg_token": " waited",
+    },
+    {
+        "concept": "agency",
+        "prefix": "The policy was imposed on residents without their input; they had no choice but to",
+        "pos_token": " comply",
+        "neg_token": " choose",
+    },
+    {
+        "concept": "agency",
+        "prefix": "He exercised full control over the project and unilaterally",
+        "pos_token": " decided",
+        "neg_token": " obeyed",
+    },
+    # --- formality ---
+    {
+        "concept": "formality",
+        "prefix": "The official correspondence began: 'Dear Sir or Madam, I write to formally",
+        "pos_token": " request",
+        "neg_token": " ask",
+    },
+    {
+        "concept": "formality",
+        "prefix": "Hey, just wanted to check in — totally cool if you can't make it, just",
+        "pos_token": " lmk",
+        "neg_token": " advise",
+    },
+    {
+        "concept": "formality",
+        "prefix": "The defendant respectfully submits that the court has jurisdiction to",
+        "pos_token": " adjudicate",
+        "neg_token": " decide",
+    },
+    # --- threat_severity ---
+    {
+        "concept": "threat_severity",
+        "prefix": "The attacker gained root access to all production servers and exfiltrated the entire customer database. This breach is",
+        "pos_token": " critical",
+        "neg_token": " minor",
+    },
+    {
+        "concept": "threat_severity",
+        "prefix": "A low-priority misconfiguration with no external exposure was found during the audit. The risk is",
+        "pos_token": " negligible",
+        "neg_token": " severe",
+    },
+    {
+        "concept": "threat_severity",
+        "prefix": "The ransomware encrypted all backups before detection, making recovery impossible. The incident is classified as",
+        "pos_token": " catastrophic",
+        "neg_token": " trivial",
+    },
+    # --- authorization ---
+    {
+        "concept": "authorization",
+        "prefix": "The administrator granted explicit permission for the user to access the restricted folder. The user is now",
+        "pos_token": " authorized",
+        "neg_token": " blocked",
+    },
+    {
+        "concept": "authorization",
+        "prefix": "The request was denied because the user lacked the required credentials. Access was",
+        "pos_token": " refused",
+        "neg_token": " granted",
+    },
+    {
+        "concept": "authorization",
+        "prefix": "After passing identity verification and signing the NDA, the contractor was formally",
+        "pos_token": " approved",
+        "neg_token": " rejected",
+    },
+    # --- urgency ---
+    {
+        "concept": "urgency",
+        "prefix": "The patient is in critical condition and needs immediate surgery. This is",
+        "pos_token": " urgent",
+        "neg_token": " routine",
+    },
+    {
+        "concept": "urgency",
+        "prefix": "The low-priority ticket can be addressed in the next quarterly cycle. There is no",
+        "pos_token": " rush",
+        "neg_token": " delay",
+    },
+    {
+        "concept": "urgency",
+        "prefix": "The building is on fire — everyone must evacuate",
+        "pos_token": " immediately",
+        "neg_token": " eventually",
+    },
+    # --- sarcasm ---
+    {
+        "concept": "sarcasm",
+        "prefix": "Oh sure, because waiting three hours in line for a two-minute ride is totally",
+        "pos_token": " worth",
+        "neg_token": " terrible",
+    },
+    {
+        "concept": "sarcasm",
+        "prefix": "The meeting that could have been an email ran for four hours and resolved nothing. What a",
+        "pos_token": " waste",
+        "neg_token": " success",
+    },
+    {
+        "concept": "sarcasm",
+        "prefix": "Yeah, right. Because that plan definitely worked out",
+        "pos_token": " perfectly",
+        "neg_token": " poorly",
+    },
+    # --- deception ---
+    {
+        "concept": "deception",
+        "prefix": "He claimed to have been in the office all day, but security footage showed otherwise. He was clearly",
+        "pos_token": " lying",
+        "neg_token": " honest",
+    },
+    {
+        "concept": "deception",
+        "prefix": "The advertisement accurately disclosed all fees, limitations, and conditions. It was completely",
+        "pos_token": " transparent",
+        "neg_token": " misleading",
+    },
+    {
+        "concept": "deception",
+        "prefix": "She forged her supervisor's signature on the approval form, which constitutes",
+        "pos_token": " fraud",
+        "neg_token": " approval",
+    },
+    # --- exfiltration ---
+    {
+        "concept": "exfiltration",
+        "prefix": "The malware silently copied confidential files to an external server, completing a successful",
+        "pos_token": " exfiltration",
+        "neg_token": " backup",
+    },
+    {
+        "concept": "exfiltration",
+        "prefix": "All data transfers were monitored and stayed within the internal network. No information was",
+        "pos_token": " leaked",
+        "neg_token": " retained",
+    },
+    {
+        "concept": "exfiltration",
+        "prefix": "The insider used an encrypted USB drive to remove proprietary source code from the facility without",
+        "pos_token": " authorization",
+        "neg_token": " detection",
+    },
 ]
 
 
@@ -424,8 +614,14 @@ def run_model(model_id: str, args) -> None:
     out_dir    = RESULTS_ROOT / "behavioral_pilot" / model_slug
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    concepts = [p["concept"] for p in BEHAVIORAL_PROBES]
-    concepts = sorted(set(concepts))  # unique, alphabetical
+    all_probe_concepts = sorted({p["concept"] for p in BEHAVIORAL_PROBES})
+    if args.concepts:
+        concepts = [c for c in args.concepts if c in all_probe_concepts]
+        unknown = [c for c in args.concepts if c not in all_probe_concepts]
+        if unknown:
+            log.warning("Unknown concepts (no probes defined): %s", unknown)
+    else:
+        concepts = all_probe_concepts
 
     pending = [c for c in concepts
                if not (out_dir / f"behavioral_pilot_{c}.json").exists()
@@ -578,6 +774,8 @@ def main():
 
     parser.add_argument("--device",    choices=["cuda", "cpu", "auto"], default="auto")
     parser.add_argument("--dtype",     choices=["auto", "bfloat16", "float32"], default="auto")
+    parser.add_argument("--concepts",  nargs="+",
+                        help="Subset of concepts to run (default: all concepts in BEHAVIORAL_PROBES)")
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--no-clean-cache", action="store_true")
 
