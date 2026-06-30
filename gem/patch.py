@@ -54,7 +54,7 @@ import argparse
 import json
 import logging
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
@@ -251,11 +251,16 @@ def patch_sweep(
     device: str,
     n_pairs: int,
     batch_size: int,
+    heldout_n: int = 0,
 ) -> dict:
     """Sweep activation patching across all layers for one concept.
 
     For each layer L, shifts neg hidden states at L by (μ_pos_L - μ_neg_L)
     and measures how much concept signal is recovered at the final layer.
+
+    If heldout_n > 0, also evaluates recovery on validation-split pairs whose
+    activations were not used to derive Δ_L or the concept direction, quantifying
+    endogeneity inflation in the calibration-set figures.
     """
     pairs = load_concept_pairs(concept, n=n_pairs or 200)
     pos_texts, neg_texts = texts_by_label(pairs)
@@ -302,6 +307,25 @@ def patch_sweep(
     log.info("  Baseline final-layer gap: %.4f  (pos=%.3f  neg=%.3f)",
              baseline_gap, baseline_pos_score, baseline_neg_score)
 
+    # ── Held-out baseline (validation split, never used in calibration) ──
+    heldout_neg_acts_all: list | None = None
+    heldout_neg_final: np.ndarray | None = None
+    heldout_neg_texts: list[str] = []
+    if heldout_n > 0:
+        heldout_pairs = load_concept_pairs(concept, split="validation", n=heldout_n)
+        _, heldout_neg_texts = texts_by_label(heldout_pairs)
+        if heldout_neg_texts:
+            log.info("  Caching held-out baseline (%d neg, validation split)...",
+                     len(heldout_neg_texts))
+            heldout_neg_acts_all = extract_layer_activations(
+                model, tokenizer, heldout_neg_texts,
+                device=device, batch_size=batch_size, pool="last"
+            )
+            heldout_neg_final = heldout_neg_acts_all[-1]
+        else:
+            log.warning("  No held-out pairs available for %s — skipping heldout eval", concept)
+            heldout_n = 0
+
     # ── Step 2: sweep layers ──
     # n_tracked may be < n_layers for models with heterogeneous hidden dims
     # (e.g. OPT-350m word_embed_proj_dim=512 — boundary states filtered by extraction).
@@ -340,30 +364,57 @@ def patch_sweep(
         # Absolute final-layer concept score of patched neg
         patched_neg_score = float((patched_neg_acts[-1] @ d_final_unit).mean())
 
+        # Held-out recovery: apply same calibration Δ_L to held-out neg pairs
+        heldout_recovery: float | None = None
+        if heldout_n > 0 and heldout_neg_texts and heldout_neg_final is not None:
+            with MeanShiftPatcher(layers[layer_idx], delta, dtype=dtype):
+                patched_heldout_acts = extract_layer_activations(
+                    model, tokenizer, heldout_neg_texts,
+                    device=device, batch_size=batch_size, pool="last"
+                )
+            heldout_recovery = round(
+                concept_score_recovery(pos_final, heldout_neg_final, patched_heldout_acts[-1]),
+                4,
+            )
+
         elapsed = time.time() - t0
 
-        results_per_layer.append({
-            "layer":                 layer_idx,
-            "depth_pct":             round(100.0 * layer_idx / n_layers, 1),
-            "baseline_separation":   float(metrics_raw[layer_idx]["separation_fisher"]),
-            "delta_magnitude":       round(float(np.linalg.norm(delta)), 4),
-            "patched_neg_score":     round(patched_neg_score, 4),
+        row: dict = {
+            "layer":                  layer_idx,
+            "depth_pct":              round(100.0 * layer_idx / n_layers, 1),
+            "baseline_separation":    float(metrics_raw[layer_idx]["separation_fisher"]),
+            "delta_magnitude":        round(float(np.linalg.norm(delta)), 4),
+            "patched_neg_score":      round(patched_neg_score, 4),
             "concept_score_recovery": round(recovery, 4),
-            "seconds":               round(elapsed, 1),
-        })
+            "seconds":                round(elapsed, 1),
+        }
+        if heldout_recovery is not None:
+            row["heldout_concept_score_recovery"] = heldout_recovery
 
-        log.info("  L%d (%.0f%%)  recovery=%.3f  (%.1fs)",
-                 layer_idx, 100.0 * layer_idx / n_layers, recovery, elapsed)
+        results_per_layer.append(row)
 
-    # Peak recovery layer
+        log.info("  L%d (%.0f%%)  recovery=%.3f  heldout=%s  (%.1fs)",
+                 layer_idx, 100.0 * layer_idx / n_layers, recovery,
+                 f"{heldout_recovery:.3f}" if heldout_recovery is not None else "n/a",
+                 elapsed)
+
+    # Peak recovery layer (calibration)
     recoveries = [r["concept_score_recovery"] for r in results_per_layer]
     peak_recovery_layer = int(np.argmax(recoveries))
+    peak_calib_recovery = round(recoveries[peak_recovery_layer], 4)
 
-    return {
+    # Held-out peak recovery (at same peak layer used by calibration)
+    heldout_recoveries = [r.get("heldout_concept_score_recovery") for r in results_per_layer]
+    peak_heldout_recovery: float | None = None
+    if any(v is not None for v in heldout_recoveries):
+        peak_heldout_recovery = heldout_recoveries[peak_recovery_layer]
+
+    result: dict = {
         "concept":                 concept,
         "model_id":                extraction_data["model_id"],
         "n_layers":                n_layers,
-        "n_pairs":                 len(pairs),
+        "n_pairs_calibration":     len(pairs),
+        "n_pairs_heldout":         len(heldout_neg_texts) if heldout_n > 0 else 0,
         "caz_start":               boundary.caz_start if boundary else None,
         "caz_peak":                boundary.caz_peak if boundary else peak_layer,
         "caz_end":                 boundary.caz_end if boundary else None,
@@ -375,15 +426,33 @@ def patch_sweep(
             boundary.caz_start <= peak_recovery_layer <= boundary.caz_end
             if boundary else None
         ),
+        "peak_calibration_recovery": peak_calib_recovery,
         "layers":                  results_per_layer,
     }
+    if peak_heldout_recovery is not None:
+        result["peak_heldout_recovery"] = peak_heldout_recovery
+        result["endogeneity_inflation_pp"] = round(
+            (peak_calib_recovery - peak_heldout_recovery) * 100, 2
+        )
+    return result
 
 
 # ---------------------------------------------------------------------------
 # Model runner
 # ---------------------------------------------------------------------------
 
-def run_model(model_id: str, concepts: list[str], args) -> None:
+def get_cohort(model_id: str) -> str:
+    """Map model_id to architecture cohort label for aggregation."""
+    m = model_id.lower()
+    if "gemma" in m:
+        return "Gemma"
+    if any(x in m for x in ("qwen", "llama", "mistral")):
+        return "GQA"
+    return "MHA"
+
+
+def run_model(model_id: str, concepts: list[str], args,
+              heldout_results: list | None = None) -> None:
     models_root = Path(args.models_dir) if getattr(args, "models_dir", None) else None
     extraction_dir = find_extraction_dir(model_id, models_root)
     if extraction_dir is None:
@@ -469,9 +538,11 @@ def run_model(model_id: str, concepts: list[str], args) -> None:
             log.info("  Already done — skipping (use --force to re-run)")
             continue
 
+        heldout_n = getattr(args, "heldout_n", 0) or 0
         result = patch_sweep(
             model, tokenizer, concept, extraction_data,
             device=device, n_pairs=args.n_pairs, batch_size=args.batch_size,
+            heldout_n=heldout_n,
         )
 
         # Write timestamped file + latest symlink (mirrors ablate.py convention)
@@ -486,13 +557,32 @@ def run_model(model_id: str, concepts: list[str], args) -> None:
 
         caz_peak      = result["caz_peak"]
         peak_rec      = result["peak_recovery_layer"]
-        peak_rec_val  = result["layers"][peak_rec]["concept_score_recovery"]
+        peak_rec_val  = result["peak_calibration_recovery"]
         in_caz        = result["peak_recovery_in_caz"]
+        heldout_val   = result.get("peak_heldout_recovery")
+        inflation     = result.get("endogeneity_inflation_pp")
         log.info(
-            "  [%s] %s → peak recovery L%d (%.3f), CAZ peak L%d, in_caz=%s",
-            model_id.split("/")[-1], concept, peak_rec, peak_rec_val, caz_peak,
+            "  [%s] %s → calib=%.3f  heldout=%s  inflation=%s pp  L%d  in_caz=%s",
+            model_id.split("/")[-1], concept,
+            peak_rec_val,
+            f"{heldout_val:.3f}" if heldout_val is not None else "n/a",
+            f"{inflation:.1f}" if inflation is not None else "n/a",
+            peak_rec,
             in_caz if in_caz is not None else "?",
         )
+
+        if heldout_results is not None and heldout_val is not None:
+            heldout_results.append({
+                "model_id":                  model_id,
+                "cohort":                    get_cohort(model_id),
+                "concept":                   concept,
+                "peak_recovery_layer":       peak_rec,
+                "peak_calibration_recovery": peak_rec_val,
+                "peak_heldout_recovery":     heldout_val,
+                "endogeneity_inflation_pp":  inflation,
+                "n_pairs_calibration":       result["n_pairs_calibration"],
+                "n_pairs_heldout":           result["n_pairs_heldout"],
+            })
 
     release_model(model)
     if not args.no_clean_cache:
@@ -530,7 +620,16 @@ def main():
                         help="Root directory containing per-model extraction dirs "
                              "(default: ~/rosetta_data/paper_n250). "
                              "Pass ~/rosetta_data/models/ on GPU hosts.")
+    parser.add_argument("--heldout-n", type=int, default=0,
+                        help="Held-out pairs per concept from the validation split "
+                             "(never used in extraction). 0 = disable. Default: 0.")
+    parser.add_argument("--heldout-out", type=str, default=None,
+                        help="Path for aggregated held-out recovery JSON "
+                             "(required when --heldout-n > 0).")
     args = parser.parse_args()
+
+    if args.heldout_n > 0 and not args.heldout_out:
+        parser.error("--heldout-out is required when --heldout-n > 0")
 
     models_root = Path(args.models_dir) if args.models_dir else None
     if args.model:
@@ -540,6 +639,8 @@ def main():
     else:
         models = discover_all_models(models_root)
     log.info("Queued %d models", len(models))
+
+    heldout_results: list[dict] = [] if args.heldout_n > 0 else []
 
     for model_id in models:
         extraction_dir = find_extraction_dir(model_id, models_root)
@@ -561,7 +662,8 @@ def main():
             continue
 
         # Skip model load entirely when every concept already has a patch result
-        if not args.force:
+        # (only applies when not running heldout — heldout always needs a fresh pass)
+        if not args.force and args.heldout_n == 0:
             already_done = [c for c in concepts
                             if (extraction_dir / f"patch_{c}.json").exists()]
             if len(already_done) == len(concepts):
@@ -569,7 +671,43 @@ def main():
                          model_id, len(concepts))
                 continue
 
-        run_model(model_id, concepts, args)
+        run_model(model_id, concepts, args,
+                  heldout_results=heldout_results if args.heldout_n > 0 else None)
+
+    # Write aggregated held-out summary
+    if args.heldout_n > 0 and args.heldout_out and heldout_results:
+        from collections import defaultdict
+
+        cohort_calib: dict[str, list[float]] = defaultdict(list)
+        cohort_heldout: dict[str, list[float]] = defaultdict(list)
+        for r in heldout_results:
+            cohort_calib[r["cohort"]].append(r["peak_calibration_recovery"])
+            cohort_heldout[r["cohort"]].append(r["peak_heldout_recovery"])
+
+        def _mean(vals: list[float]) -> float:
+            return round(float(np.mean(vals)), 4) if vals else float("nan")
+
+        cohorts = sorted(set(r["cohort"] for r in heldout_results))
+        calib_by_cohort  = {c: _mean(cohort_calib[c])  for c in cohorts}
+        heldout_by_cohort = {c: _mean(cohort_heldout[c]) for c in cohorts}
+        inflation_by_cohort = {
+            c: round((calib_by_cohort[c] - heldout_by_cohort[c]) * 100, 2)
+            for c in cohorts
+        }
+
+        agg = {
+            "written": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
+            "n_pairs_heldout": args.heldout_n,
+            "heldout_split": "validation",
+            "calibration_recovery":  calib_by_cohort,
+            "heldout_recovery":      heldout_by_cohort,
+            "endogeneity_inflation_pp": inflation_by_cohort,
+            "per_model_per_concept": heldout_results,
+        }
+        out_path = Path(args.heldout_out)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(json.dumps(agg, indent=2))
+        log.info("Held-out summary → %s", out_path)
 
 
 if __name__ == "__main__":
