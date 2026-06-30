@@ -52,6 +52,13 @@ CONCEPTS = [
     "credibility", "certainty", "causation",
     "temporal_order", "negation", "sentiment", "moral_valence",
 ]
+
+ALL_17_CONCEPTS = [
+    "agency", "authorization", "causation", "certainty", "credibility",
+    "deception", "exfiltration", "formality", "moral_valence", "negation",
+    "plurality", "sarcasm", "sentiment", "specificity", "temporal_order",
+    "threat_severity", "urgency",
+]
 DEFAULT_DEPTHS = [0.3, 0.5, 0.7]
 
 DEFAULT_DATA_ROOT = REPO_ROOT / "rosetta_data" / "models"
@@ -131,12 +138,19 @@ def main():
                     help="Comma-separated model dir names to exclude (e.g. EleutherAI_pythia_1b)")
     ap.add_argument("--no-rotation", action="store_true",
                     help="Skip Procrustes rotation (use raw DOM vectors); depth-stratification null condition")
+    ap.add_argument("--concepts", type=str, default="",
+                    help="Comma-separated concept list; defaults to 7-concept set. "
+                         "Use 'all17' for the full 17-concept set.")
     args = ap.parse_args()
 
-    global DEPTHS, DATA_ROOT, OUT_DIR
+    global DEPTHS, DATA_ROOT, OUT_DIR, CONCEPTS
     DEPTHS = [float(x) for x in args.depths.split(",")]
     DATA_ROOT = args.data_root
     OUT_DIR = args.out_dir
+    if args.concepts == "all17":
+        CONCEPTS = ALL_17_CONCEPTS
+    elif args.concepts:
+        CONCEPTS = [c.strip() for c in args.concepts.split(",") if c.strip()]
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     exclude_set = {m.strip() for m in args.exclude_models.split(",") if m.strip()}
     log.info("data_root=%s  out_dir=%s  depths=%s  cross_family=%s  exclude=%s",

@@ -27,8 +27,10 @@ Usage
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 from dataclasses import dataclass, asdict
+from datetime import datetime, timezone
 from pathlib import Path
 
 import matplotlib
@@ -634,6 +636,131 @@ def print_summary(sdf: pd.DataFrame) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Width-abstraction correlation mode (--correlate-abstraction)
+# ---------------------------------------------------------------------------
+
+
+def compute_width_from_caz_json(path: Path) -> float | None:
+    """Return CAZ width as % of model depth from a caz_*.json file."""
+    data = json.loads(path.read_text())
+    ld = data["layer_data"]
+    n_layers = int(ld["n_layers"])
+    if n_layers < 1:
+        return None
+    metrics = [
+        LayerMetrics(
+            layer=int(m["layer"]),
+            separation=float(m["separation_fisher"]),
+            coherence=float(m["coherence"]),
+            velocity=float(m["velocity"]),
+        )
+        for m in ld["metrics"]
+    ]
+    boundary = find_caz_boundary(metrics)
+    return 100.0 * boundary.caz_width / n_layers
+
+
+def run_correlation_mode(args) -> None:
+    """Width-abstraction Spearman correlation at C=N across all models.
+
+    Reads caz_*.json files from --data-root/<model-slug>/caz_<concept>.json,
+    computes CAZ width (% depth) via find_caz_boundary, then computes the
+    Spearman rank correlation between width and the a priori abstraction rank.
+    """
+    data_root = Path(args.data_root)
+    concepts = [c.strip() for c in args.concepts.split(",") if c.strip()]
+    ranking = [c.strip() for c in args.abstraction_ranking.split(",") if c.strip()]
+    out_path = Path(args.out)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    if not concepts:
+        log.error("--concepts is required with --correlate-abstraction")
+        return
+    if not ranking:
+        log.error("--abstraction-ranking is required with --correlate-abstraction")
+        return
+
+    # abstraction_rank[concept] = 1-based rank (1 = most concrete)
+    abstraction_rank = {c: i + 1 for i, c in enumerate(ranking)}
+    missing = [c for c in concepts if c not in abstraction_rank]
+    if missing:
+        log.error("Concepts not in abstraction ranking: %s", missing)
+        return
+
+    model_dirs = sorted(p for p in data_root.iterdir() if p.is_dir())
+    log.info("Scanning %d model dirs in %s", len(model_dirs), data_root)
+
+    observations: list[dict] = []
+    skipped = 0
+    for md in model_dirs:
+        for concept in concepts:
+            json_path = md / f"caz_{concept}.json"
+            if not json_path.exists():
+                skipped += 1
+                continue
+            try:
+                width_pct = compute_width_from_caz_json(json_path)
+            except Exception as e:
+                log.warning("Failed to parse %s: %s", json_path, e)
+                skipped += 1
+                continue
+            if width_pct is None:
+                skipped += 1
+                continue
+            observations.append({
+                "model": md.name,
+                "concept": concept,
+                "abstraction_rank": abstraction_rank[concept],
+                "caz_width_pct": width_pct,
+            })
+
+    log.info("Collected %d observations (%d skipped)", len(observations), skipped)
+    if len(observations) < 3:
+        log.error("Not enough observations to compute correlation.")
+        return
+
+    ranks = [o["abstraction_rank"] for o in observations]
+    widths = [o["caz_width_pct"] for o in observations]
+
+    rho, p_value = spearmanr(ranks, widths)
+
+    # Per-concept summary
+    per_concept: dict[str, dict] = {}
+    for concept in concepts:
+        rows = [o for o in observations if o["concept"] == concept]
+        if not rows:
+            continue
+        ws = [o["caz_width_pct"] for o in rows]
+        per_concept[concept] = {
+            "n_models": len(rows),
+            "abstraction_rank": abstraction_rank[concept],
+            "mean_width_pct": float(np.mean(ws)),
+            "median_width_pct": float(np.median(ws)),
+            "std_width_pct": float(np.std(ws)),
+        }
+
+    output = {
+        "written": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
+        "method": "Spearman rank correlation: CAZ width (% model depth) ~ a priori abstraction rank",
+        "data_root": str(data_root),
+        "n_concepts": len(concepts),
+        "concepts": concepts,
+        "abstraction_ranking": ranking,
+        "dep_threshold_note": "not applicable (width-abstraction mode)",
+        "n_observations": len(observations),
+        "n_skipped": skipped,
+        "spearman_rho": float(rho),
+        "spearman_p": float(p_value),
+        "per_concept": per_concept,
+        "observations": observations,
+    }
+
+    log.info("Spearman rho=%.4f  p=%.4e  n=%d", rho, p_value, len(observations))
+    out_path.write_text(json.dumps(output, indent=2))
+    log.info("Output: %s", out_path)
+
+
+# ---------------------------------------------------------------------------
 # Discovery + main
 # ---------------------------------------------------------------------------
 
@@ -655,10 +782,31 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="CAZ structural analysis — beyond the peak",
     )
-    group = parser.add_mutually_exclusive_group(required=True)
+    group = parser.add_mutually_exclusive_group(required=False)
     group.add_argument("--family", nargs="+", help="Family name(s)")
     group.add_argument("--all", action="store_true", help="All families")
+
+    # Width-abstraction correlation mode
+    parser.add_argument("--correlate-abstraction", action="store_true",
+                        help="Run width-abstraction Spearman correlation (requires --data-root, "
+                             "--concepts, --abstraction-ranking, --out)")
+    parser.add_argument("--data-root", type=str, default="",
+                        help="Root dir with model subdirs (used by --correlate-abstraction)")
+    parser.add_argument("--concepts", type=str, default="",
+                        help="Comma-separated concept list (used by --correlate-abstraction)")
+    parser.add_argument("--abstraction-ranking", type=str, default="",
+                        help="Comma-separated concepts ordered most-concrete-first "
+                             "(used by --correlate-abstraction)")
+    parser.add_argument("--out", type=str, default="",
+                        help="Output JSON path (used by --correlate-abstraction)")
     args = parser.parse_args()
+
+    if args.correlate_abstraction:
+        run_correlation_mode(args)
+        return
+
+    if not args.all and not args.family:
+        parser.error("one of --all or --family is required (or use --correlate-abstraction)")
 
     VIZ_DIR.mkdir(parents=True, exist_ok=True)
 
