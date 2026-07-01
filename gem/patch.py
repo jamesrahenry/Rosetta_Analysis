@@ -628,8 +628,8 @@ def main():
                              "(required when --heldout-n > 0).")
     args = parser.parse_args()
 
-    if args.heldout_n > 0 and not args.heldout_out:
-        parser.error("--heldout-out is required when --heldout-n > 0")
+    # --heldout-out is optional; omitting it skips the per-run aggregate write
+    # (the Prefect flow does its own aggregation from per-model JSONs)
 
     models_root = Path(args.models_dir) if args.models_dir else None
     if args.model:
