@@ -181,8 +181,10 @@ def plot_bars(records: list[dict], out_path: Path) -> None:
     """Bar chart: CAZ peak vs non-CAZ reduction per model (base only)."""
     from collections import defaultdict
 
-    # Base models only
-    base = [r for r in records if not r["is_instruct"]]
+    # Base models only, restricted to the paper's FAMILY_MAP roster (28 models);
+    # excludes non-roster base models (e.g. gpt-neo-125m, Llama-3.1-8B).
+    from viz_style import FAMILY_MAP
+    base = [r for r in records if not r["is_instruct"] and r["model_id"] in FAMILY_MAP]
     by_model: dict[str, list] = defaultdict(list)
     for r in base:
         by_model[r["model_id"]].append(r)
