@@ -27,18 +27,12 @@ PAPERS_DIR = Path.home() / "Source" / "Rosetta_Program" / "papers" / "caz-valida
 
 CONCEPTS = [
     "credibility", "certainty", "sentiment", "moral_valence",
-    "causation", "temporal_order", "negation",
+    "causation", "temporal_order", "negation", "specificity",
+    "plurality", "agency", "formality", "sarcasm", "deception",
+    "urgency", "threat_severity", "authorization", "exfiltration",
 ]
 
-CONCEPT_LABELS = {
-    "credibility":    "Credibility",
-    "certainty":      "Certainty",
-    "sentiment":      "Sentiment",
-    "moral_valence":  "Moral Valence",
-    "causation":      "Causation",
-    "temporal_order": "Temporal Order",
-    "negation":       "Negation",
-}
+CONCEPT_LABELS = {c: c.replace("_", " ").title() for c in CONCEPTS}
 
 SAE_COLOR      = THEME["cka_line"]  # dark blue — SAE (16k features)
 CAZ_MEAN_COLOR = "#D84315"          # deep orange — CAZ mean line (summary panel)
@@ -96,25 +90,23 @@ def run(args):
     xval_dir = Path(args.xval_dir)
     curves   = load_curves(xval_dir)
 
-    # ── Figure layout: 2×4 — 7 concepts + summary ─────────────────────────────
-    # Row 0: credibility · certainty · sentiment · moral_valence
-    # Row 1: causation   · temporal_order · negation · mean±1σ summary
-    fig = plt.figure(figsize=(16, 8))
+    # ── Figure layout: 3×6 — 17 concepts + mean±1σ summary (18 panels) ─────────
+    n_cols = 6
+    n_rows = 3
+    fig = plt.figure(figsize=(22, 11))
     fig.patch.set_facecolor("white")
 
     gs = gridspec.GridSpec(
-        2, 4,
+        n_rows, n_cols,
         figure=fig,
         hspace=0.52, wspace=0.32,
-        left=0.07, right=0.97,
-        top=0.88, bottom=0.09,
+        left=0.05, right=0.98,
+        top=0.90, bottom=0.07,
     )
 
-    # (row, col) for each concept in CONCEPTS order
-    axes_positions = [
-        (0, 0), (0, 1), (0, 2), (0, 3),
-        (1, 0), (1, 1), (1, 2),
-    ]
+    # (row, col) for each concept in CONCEPTS order; summary takes the last slot.
+    axes_positions = [(i // n_cols, i % n_cols) for i in range(len(CONCEPTS))]
+    summary_pos = (len(CONCEPTS) // n_cols, len(CONCEPTS) % n_cols)
 
     concept_r_values = []
 
@@ -159,8 +151,8 @@ def run(args):
                   facecolor="white", edgecolor=THEME["spine"],
                   labelcolor=THEME["text"], handlelength=1.2)
 
-    # ── Summary panel (row 1, col 3) ───────────────────────────────────────────
-    ax_sum = fig.add_subplot(gs[1, 3])
+    # ── Summary panel (last grid slot) ─────────────────────────────────────────
+    ax_sum = fig.add_subplot(gs[summary_pos[0], summary_pos[1]])
     ax_sum.set_facecolor("white")
 
     all_caz, all_sae = [], []
@@ -183,7 +175,7 @@ def run(args):
     ax_sum.plot(L, mean_sae, color=SAE_COLOR,      linewidth=2.2, label="SAE")
     ax_sum.plot(L, mean_caz, color=CAZ_MEAN_COLOR, linewidth=2.2, label="CAZ")
 
-    ax_sum.set_title("Mean ± 1σ (all 7 concepts)", color=THEME["text"],
+    ax_sum.set_title("Mean ± 1σ (all 17 concepts)", color=THEME["text"],
                      fontsize=10, fontweight="bold", pad=4)
     ax_sum.text(0.5, 0.1, f"mean r = {np.mean(concept_r_values):.3f}",
                 transform=ax_sum.transAxes, ha="center",
@@ -208,7 +200,7 @@ def run(args):
     )
     fig.text(
         0.5, 0.925,
-        f"CAZ: 700 labeled texts · 1 forward pass · no SAE download        "
+        f"CAZ: 250 pairs/concept · 1 forward pass · no SAE download        "
         f"SAE: 26 × 302 MB checkpoints (7.8 GB) · mean Spearman r = {np.mean(concept_r_values):.3f}",
         ha="center", va="center", color=THEME["dim"],
         fontsize=9.5,
@@ -221,7 +213,7 @@ def run(args):
 
 
 def run_overlay(args):
-    """Single-panel overlay: all 7 concepts on one plot as bands."""
+    """Single-panel overlay: all 17 concepts on one plot as bands."""
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -274,7 +266,7 @@ def run_overlay(args):
 
     mean_r = np.mean([v["spearman_r"] for v in curves.values()])
     ax.text(0.97, 0.06,
-            f"mean Spearman  r = {mean_r:.3f}  (7 concepts)",
+            f"mean Spearman  r = {mean_r:.3f}  (17 concepts)",
             transform=ax.transAxes, ha="right", va="bottom",
             color=THEME["text"], fontsize=12, fontweight="bold")
 
@@ -290,12 +282,12 @@ def run_overlay(args):
               facecolor="white", edgecolor=THEME["spine"], labelcolor=THEME["text"])
 
     fig.suptitle(
-        "CAZ Eigenvectors vs. Gemma Scope SAEs  |  Gemma-2-2b  |  7 concepts",
+        "CAZ Eigenvectors vs. Gemma Scope SAEs  |  Gemma-2-2b  |  17 concepts",
         color=THEME["text"], fontsize=14, fontweight="bold", y=0.97,
     )
     fig.text(
         0.5, 0.005,
-        "CAZ: 700 labeled texts · 1 forward pass · no SAE download        "
+        "CAZ: 250 pairs/concept · 1 forward pass · no SAE download        "
         "SAE: 26 × 302 MB checkpoints (7.8 GB)",
         ha="center", color=THEME["dim"], fontsize=9,
     )
@@ -310,7 +302,7 @@ def main():
     parser.add_argument("--xval-dir",
                         default=str(ROSETTA_RESULTS / "gemma_scope_xval"))
     parser.add_argument("--overlay", action="store_true",
-                        help="Single-panel overlay of all 7 concepts")
+                        help="Single-panel overlay of all 17 concepts")
     args = parser.parse_args()
     if args.overlay:
         run_overlay(args)

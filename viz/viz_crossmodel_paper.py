@@ -68,13 +68,30 @@ def load_concept_for_model(model_id: str, concept: str) -> dict | None:
     caz     = json.loads(caz_file.read_text())
     metrics = caz["layer_data"]["metrics"]
 
+    # Scored CAZ detection (0.5% prominence floor) — the paper's canonical
+    # detector. Regions expose .start/.end/.peak; the plot reads them as dict keys.
+    from rosetta_tools.caz import find_caz_regions_scored, LayerMetrics
+    lm = [
+        LayerMetrics(
+            layer=m["layer"],
+            separation=m["separation_fisher"],
+            coherence=m["coherence"],
+            velocity=m["velocity"],
+        )
+        for m in metrics
+    ]
+    fisher_regions = [
+        {"start": r.start, "end": r.end, "peak": r.peak}
+        for r in find_caz_regions_scored(lm).regions
+    ]
+
     return {
         "model_id":       model_id,
         "n_layers":       int(caz["n_layers"]),
         "layers":         np.array([m["layer"] for m in metrics]),
         "separation":     np.array([m["separation_fisher"] for m in metrics]),
         "cka_adj":        [],
-        "fisher_regions": [],
+        "fisher_regions": fisher_regions,
         "peak_layer":     caz["layer_data"].get("peak_layer"),   # fallback peak
     }
 

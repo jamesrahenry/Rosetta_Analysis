@@ -3,7 +3,7 @@
 viz_baton_pass.py — Velocity X-crossing baton-pass figure (paper / white background).
 
 Three-panel figure:
-  TOP    — All 7 concept velocity curves, causation highlighted, crossing zone marked.
+  TOP    — All 17 concept velocity curves, causation highlighted, crossing zone marked.
   BOT-L  — Close-up: v_causation × v_certainty × v_temporal_order, L14–L34.
             Large X marker at the precise crossing layer.
   BOT-R  — Separation S(l) curves for causation / certainty / temporal_order.
@@ -40,7 +40,9 @@ DEFAULT_MODEL_ID = "openai-community/gpt2-xl"
 PAPERS_DIR = Path.home() / "Source" / "Rosetta_Program" / "papers" / "caz-validation" / "figures"
 
 CONCEPTS = ["causation", "certainty", "credibility", "moral_valence",
-            "negation", "sentiment", "temporal_order"]
+            "negation", "sentiment", "temporal_order", "specificity",
+            "plurality", "agency", "formality", "sarcasm", "deception",
+            "urgency", "threat_severity", "authorization", "exfiltration"]
 LABELS = {c: c.replace("_", " ").title() for c in CONCEPTS}
 LABELS["temporal_order"] = "Temporal Order"
 LABELS["moral_valence"]  = "Moral Valence"
@@ -138,7 +140,7 @@ def run(args) -> None:
     ax_top.set_xlim(0, n - 1)
     ax_top.set_ylabel("Velocity  $v(\\ell)$", color=THEME["text"], fontsize=9)
     ax_top.set_title(
-        "Velocity X-crossing — all 7 concepts in GPT-2-XL (48 layers)",
+        "Velocity X-crossing — all 17 concepts in GPT-2-XL (48 layers)",
         color=THEME["text"], fontsize=11, fontweight="bold", loc="left", pad=5,
     )
     ax_top.grid(axis="y", linewidth=0.4, color="#ECEFF1", zorder=0)

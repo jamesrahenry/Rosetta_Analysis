@@ -33,20 +33,33 @@ from rosetta_tools.paths import ROSETTA_MODELS
 
 PAPERS_DIR = Path.home() / "Source" / "Rosetta_Program" / "papers" / "caz-validation" / "figures"
 
+# Paper C=17 concept set (excludes the canonical palette's 18th, "obfuscation").
+# Row order here is nominal; run() re-sorts rows by mean depth before plotting.
 CONCEPT_ORDER = [
-    "temporal_order", "causation",
-    "negation",
-    "sentiment", "moral_valence",
-    "certainty", "credibility",
+    "specificity", "plurality", "negation",
+    "temporal_order", "causation", "agency",
+    "sentiment", "moral_valence", "formality", "sarcasm",
+    "certainty", "credibility", "deception",
+    "urgency", "threat_severity", "authorization", "exfiltration",
 ]
 CONCEPT_LABELS = {
-    "temporal_order": "Temporal\nOrder",
-    "causation":      "Causation",
-    "negation":       "Negation",
-    "sentiment":      "Sentiment",
-    "moral_valence":  "Moral\nValence",
-    "certainty":      "Certainty",
-    "credibility":    "Credibility",
+    "specificity":     "Specificity",
+    "plurality":       "Plurality",
+    "negation":        "Negation",
+    "temporal_order":  "Temporal\nOrder",
+    "causation":       "Causation",
+    "agency":          "Agency",
+    "sentiment":       "Sentiment",
+    "moral_valence":   "Moral\nValence",
+    "formality":       "Formality",
+    "sarcasm":         "Sarcasm",
+    "certainty":       "Certainty",
+    "credibility":     "Credibility",
+    "deception":       "Deception",
+    "urgency":         "Urgency",
+    "threat_severity": "Threat\nSeverity",
+    "authorization":   "Authorization",
+    "exfiltration":    "Exfiltration",
 }
 
 

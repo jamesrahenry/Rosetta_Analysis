@@ -214,7 +214,7 @@ CAZ_CAT_FILL: dict[str, str] = {
 }
 
 CAZ_CAT_LABELS: dict[str, str] = {
-    "black_hole": "Black hole",
+    "black_hole": "Major CAZ",
     "strong":     "Strong",
     "moderate":   "Moderate",
     "gentle":     "Gentle",

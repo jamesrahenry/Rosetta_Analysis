@@ -85,10 +85,11 @@ def arch_group_of(model_id: str) -> str | None:
 
 
 def load_ablation(results_dir: Path) -> dict[str, list[float]]:
-    """Load GEM peak final_sep_reduction for each model-concept pair.
+    """Load GEM handoff-layer final_sep_reduction for each model-concept pair.
 
-    GEM (Geometric Evolution Map) peak ablation is the validated zone-level
-    protocol used in Table 12 / §6.4 — supersedes single-layer global sweeps.
+    Table 12 / §6.4's "GEM peak ablation" column is the handoff-layer protocol
+    (ablate at L_H = min(L_CAZ_end + 1, N-1)), NOT the Fisher-peak ablation.
+    Read the "handoff" block so the figure matches the paper's cohort numbers.
 
     Returns {arch_group: [sep_reduction, ...]}
     """
@@ -104,8 +105,8 @@ def load_ablation(results_dir: Path) -> dict[str, list[float]]:
         group = arch_group_of(model_id)
         if group is None:
             continue
-        peak = d.get("peak", {})
-        sr = peak.get("final_sep_reduction")
+        handoff = d.get("handoff", {})
+        sr = handoff.get("final_sep_reduction")
         if sr is None:
             continue
         by_arch[group].append(float(sr))
