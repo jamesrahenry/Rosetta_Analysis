@@ -139,8 +139,11 @@ def run_deep_dive(model_id: str, args) -> None:
             model_id, quantization_config=bnb_config, device_map="auto"
         )
     else:
+        # Shard across GPUs (balanced) when >1 is visible, so 12-14B models fit on
+        # e.g. 2x20GB; single-device otherwise.
+        _dm = "auto" if (torch.cuda.is_available() and torch.cuda.device_count() > 1) else device
         try:
-            model = AutoModel.from_pretrained(model_id, dtype=dtype, device_map=device)
+            model = AutoModel.from_pretrained(model_id, dtype=dtype, device_map=_dm)
         except (ValueError, ImportError):
             model = AutoModel.from_pretrained(model_id, dtype=dtype).to(device)
     model.eval()
