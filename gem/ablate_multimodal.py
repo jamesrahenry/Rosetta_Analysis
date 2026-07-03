@@ -279,7 +279,7 @@ def run_model(model_id: str, concepts: list[str], args) -> None:
     log_device_info(device, dtype)
 
     from rosetta_tools.gpu_utils import load_causal_lm
-    model, tokenizer = load_causal_lm(model_id, device, dtype)
+    model, tokenizer = load_causal_lm(model_id, device, dtype, device_map=args.device_map, load_in_8bit=args.load_in_8bit)
     log_vram("after model load")
 
     # Skip if the model barely fits — ablation needs headroom for forward passes
@@ -374,6 +374,10 @@ def main():
     parser.add_argument("--n-pairs", type=int, default=50)
     parser.add_argument("--batch-size", type=int, default=4)
     parser.add_argument("--device", choices=["cuda", "cpu", "auto"], default="auto")
+    parser.add_argument("--device-map", choices=["auto"], default=None,
+                        help="Shard weights across GPUs (balanced) — needed for 12-14B models on <=24GB cards.")
+    parser.add_argument("--load-in-8bit", action="store_true",
+                        help="8-bit quantization fallback if the model still OOMs.")
     parser.add_argument("--dtype", choices=["auto", "bfloat16", "float32"], default="auto")
     parser.add_argument("--no-clean-cache", action="store_true",
                         help="Keep models in HF cache (default: auto-purge)")

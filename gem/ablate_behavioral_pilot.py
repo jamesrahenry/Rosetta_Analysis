@@ -636,7 +636,7 @@ def run_model(model_id: str, args) -> None:
     log_device_info(device, dtype)
 
     try:
-        model, tokenizer = load_causal_lm(model_id, device, dtype)
+        model, tokenizer = load_causal_lm(model_id, device, dtype, device_map=args.device_map, load_in_8bit=args.load_in_8bit)
     except Exception as e:
         log.error("Failed to load %s: %s", model_id, e)
         return
@@ -773,6 +773,10 @@ def main():
     group.add_argument("--all",   action="store_true")
 
     parser.add_argument("--device",    choices=["cuda", "cpu", "auto"], default="auto")
+    parser.add_argument("--device-map", choices=["auto"], default=None,
+                        help="Shard weights across GPUs (balanced) — needed for 12-14B models on <=24GB cards.")
+    parser.add_argument("--load-in-8bit", action="store_true",
+                        help="8-bit quantization fallback if the model still OOMs.")
     parser.add_argument("--dtype",     choices=["auto", "bfloat16", "float32"], default="auto")
     parser.add_argument("--concepts",  nargs="+",
                         help="Subset of concepts to run (default: all concepts in BEHAVIORAL_PROBES)")
