@@ -247,7 +247,7 @@ def run_model(model_id: str, args) -> None:
     log_device_info(device, dtype)
 
     try:
-        model, tokenizer = load_causal_lm(model_id, device, dtype, device_map=args.device_map, load_in_8bit=args.load_in_8bit)
+        model, tokenizer = load_causal_lm(model_id, device, dtype, device_map=(args.device_map or ("auto" if torch.cuda.is_available() and torch.cuda.device_count() > 1 else None)), load_in_8bit=args.load_in_8bit)
     except Exception as e:
         log.error("Failed to load %s: %s", model_id, e)
         return

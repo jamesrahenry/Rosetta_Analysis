@@ -279,7 +279,7 @@ def run_model(model_id: str, concepts: list[str], args) -> None:
     log_device_info(device, dtype)
 
     from rosetta_tools.gpu_utils import load_causal_lm
-    model, tokenizer = load_causal_lm(model_id, device, dtype, device_map=args.device_map, load_in_8bit=args.load_in_8bit)
+    model, tokenizer = load_causal_lm(model_id, device, dtype, device_map=(args.device_map or ("auto" if torch.cuda.is_available() and torch.cuda.device_count() > 1 else None)), load_in_8bit=args.load_in_8bit)
     log_vram("after model load")
 
     # Skip if the model barely fits — ablation needs headroom for forward passes
