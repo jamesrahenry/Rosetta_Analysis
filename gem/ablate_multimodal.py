@@ -51,6 +51,8 @@ log = logging.getLogger(__name__)
 CONCEPTS = [
     "credibility", "negation", "sentiment", "causation",
     "certainty", "moral_valence", "temporal_order",
+    "specificity", "plurality", "agency", "formality", "sarcasm",
+    "deception", "urgency", "threat_severity", "authorization", "exfiltration",
 ]
 
 
