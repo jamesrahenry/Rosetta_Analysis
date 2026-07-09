@@ -28,7 +28,11 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 log = logging.getLogger(__name__)
 
 RESULTS_DIR = ROSETTA_RESULTS
-CONCEPTS = ["credibility", "certainty", "sentiment", "moral_valence", "causation", "temporal_order", "negation"]
+CONCEPTS = [
+    "credibility", "certainty", "sentiment", "moral_valence", "causation", "temporal_order", "negation",
+    "specificity", "plurality", "agency", "formality", "sarcasm", "deception", "urgency",
+    "threat_severity", "authorization", "exfiltration",
+]
 
 THRESHOLD = 0.5
 
