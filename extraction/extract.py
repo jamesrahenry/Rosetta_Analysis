@@ -584,6 +584,16 @@ def run_model(model_id: str, concepts: list[str], args, device_override: str | N
     use_multi_gpu = (not load_8bit and not load_4bit) and model_vram > 12.0 and (
         n_gpus > 1 or needs_offload
     )
+
+    if load_4bit:
+        log.info("4-bit nf4 quantization (model_id=%s)", model_id)
+    elif use_multi_gpu:
+        log.info(
+            "Large model (%.0f GB bf16): device_map='auto' across %d GPUs",
+            model_vram, n_gpus,
+        )
+
+    load_kwargs: dict = {}
     if use_multi_gpu and needs_offload and n_gpus == 1:
         # Without a cap, device_map="auto" packs the single GPU to ~100%
         # (Llama-3.1-70B: 136.4/139.8 GiB placed, 445 MiB free) and the
@@ -595,16 +605,6 @@ def run_model(model_id: str, concepts: list[str], args, device_override: str | N
         gpu_cap_gib = max(int(single_gpu_gib) - 18, 8)
         load_kwargs["max_memory"] = {0: f"{gpu_cap_gib}GiB", "cpu": "170GiB"}
         log.info("  Single-GPU offload: max_memory GPU cap %d GiB (18 GiB activation headroom)", gpu_cap_gib)
-
-    if load_4bit:
-        log.info("4-bit nf4 quantization (model_id=%s)", model_id)
-    elif use_multi_gpu:
-        log.info(
-            "Large model (%.0f GB bf16): device_map='auto' across %d GPUs",
-            model_vram, n_gpus,
-        )
-
-    load_kwargs: dict = {}
     if load_4bit:
         from transformers import BitsAndBytesConfig
         load_kwargs["quantization_config"] = BitsAndBytesConfig(
