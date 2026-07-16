@@ -569,7 +569,21 @@ def run_model(model_id: str, concepts: list[str], args, device_override: str | N
     # Input tensors go to cuda:0 (where the embedding layer always lands).
     model_vram = _registry_vram(model_id)
     n_gpus = torch.cuda.device_count() if device.startswith("cuda") else 1
-    use_multi_gpu = (not load_8bit and not load_4bit) and model_vram > 12.0 and n_gpus > 1
+    # device_map="auto" when the model spans multiple GPUs, OR when it
+    # cannot fit the single GPU we have — accelerate then spills excess
+    # layers to host RAM (numerically identical bf16, slower on the spilled
+    # layers). Without this, a >VRAM model on a 1-GPU host hard-OOMs on
+    # plain .to(device) and never gets its full-precision attempt (the
+    # 2026-07-16 Cluster F 70B models' case: ~140GB bf16 vs one 141GB H200,
+    # where weights alone fit but activations don't).
+    single_gpu_gib = (
+        torch.cuda.get_device_properties(0).total_memory / 1024**3
+        if device.startswith("cuda") else float("inf")
+    )
+    needs_offload = model_vram * 1.15 > single_gpu_gib  # +15% activation headroom
+    use_multi_gpu = (not load_8bit and not load_4bit) and model_vram > 12.0 and (
+        n_gpus > 1 or needs_offload
+    )
 
     if load_4bit:
         log.info("4-bit nf4 quantization (model_id=%s)", model_id)
