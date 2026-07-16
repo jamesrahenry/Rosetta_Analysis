@@ -633,6 +633,16 @@ def run_model(model_id: str, concepts: list[str], args, device_override: str | N
     log_vram("after model load")
 
     batch = safe_batch_size(args.batch_size, device)
+    if needs_offload and not (load_8bit or load_4bit):
+        # In the single-GPU offload regime the activation budget is the
+        # binding constraint: at batch 16 both 70B-class bf16 attempts OOM'd
+        # by <0.5 GiB (output_hidden_states retains every layer's states
+        # until pooling — ~11 GiB at batch 16/seq 512/8192-dim/80 layers).
+        # Halving the batch halves that retention and clears the ceiling
+        # with margin; slower, but bf16 > speed here by decision
+        # (James 2026-07-16: close the precision gap).
+        batch = min(batch, 8)
+        log.info("  Offload regime: batch capped at %d for activation headroom", batch)
     run_summary = []
     t_start = time.time()
 
