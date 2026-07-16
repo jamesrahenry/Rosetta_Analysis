@@ -334,7 +334,14 @@ def extract_layer_wise_metrics(model, tokenizer, pos_texts, neg_texts, device, b
 
 def extract_concept(concept, model, tokenizer, device, n_pairs, batch_size, out_dir, split="train"):
     out_path = out_dir / f"caz_{concept}.json"
-    if out_path.exists():
+    # Skip only when the FULL artifact set exists — caz alone is not enough.
+    # This must mirror run_model's _needs_extraction: a dir holding caz but
+    # missing calibration_alllayer (e.g. restored from HF, which carries caz
+    # for models whose npy extraction never ran) previously skipped here
+    # AFTER _needs_extraction had already decided work was needed — loading
+    # the model and then silently extracting nothing (2026-07-16 Cluster F
+    # backfill no-op).
+    if out_path.exists() and (out_dir / f"calibration_alllayer_{concept}.npy").exists():
         try:
             existing_n = json.loads(out_path.read_text()).get("n_pairs", 0)
         except (json.JSONDecodeError, OSError):
@@ -344,6 +351,8 @@ def extract_concept(concept, model, tokenizer, device, n_pairs, batch_size, out_
             log.info("  [%s] %s already extracted (n=%d) — skipping", out_dir.name, concept, existing_n)
             return {"concept": concept, "skipped": True}
         log.info("  [%s] %s exists at n=%d < requested %d — re-extracting", out_dir.name, concept, existing_n, requested)
+    elif out_path.exists():
+        log.info("  [%s] %s: caz present but calibration_alllayer missing — re-extracting", out_dir.name, concept)
 
     pairs = load_concept_pairs(concept, n=n_pairs or 200, split=split)
 
