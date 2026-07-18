@@ -334,7 +334,14 @@ def extract_layer_wise_metrics(model, tokenizer, pos_texts, neg_texts, device, b
 
 def extract_concept(concept, model, tokenizer, device, n_pairs, batch_size, out_dir, split="train"):
     out_path = out_dir / f"caz_{concept}.json"
-    if out_path.exists():
+    # Skip only when the FULL artifact set exists — caz alone is not enough.
+    # This must mirror run_model's _needs_extraction: a dir holding caz but
+    # missing calibration_alllayer (e.g. restored from HF, which carries caz
+    # for models whose npy extraction never ran) previously skipped here
+    # AFTER _needs_extraction had already decided work was needed — loading
+    # the model and then silently extracting nothing (2026-07-16 Cluster F
+    # backfill no-op).
+    if out_path.exists() and (out_dir / f"calibration_alllayer_{concept}.npy").exists():
         try:
             existing_n = json.loads(out_path.read_text()).get("n_pairs", 0)
         except (json.JSONDecodeError, OSError):
@@ -344,6 +351,8 @@ def extract_concept(concept, model, tokenizer, device, n_pairs, batch_size, out_
             log.info("  [%s] %s already extracted (n=%d) — skipping", out_dir.name, concept, existing_n)
             return {"concept": concept, "skipped": True}
         log.info("  [%s] %s exists at n=%d < requested %d — re-extracting", out_dir.name, concept, existing_n, requested)
+    elif out_path.exists():
+        log.info("  [%s] %s: caz present but calibration_alllayer missing — re-extracting", out_dir.name, concept)
 
     pairs = load_concept_pairs(concept, n=n_pairs or 200, split=split)
 
@@ -560,7 +569,21 @@ def run_model(model_id: str, concepts: list[str], args, device_override: str | N
     # Input tensors go to cuda:0 (where the embedding layer always lands).
     model_vram = _registry_vram(model_id)
     n_gpus = torch.cuda.device_count() if device.startswith("cuda") else 1
-    use_multi_gpu = (not load_8bit and not load_4bit) and model_vram > 12.0 and n_gpus > 1
+    # device_map="auto" when the model spans multiple GPUs, OR when it
+    # cannot fit the single GPU we have — accelerate then spills excess
+    # layers to host RAM (numerically identical bf16, slower on the spilled
+    # layers). Without this, a >VRAM model on a 1-GPU host hard-OOMs on
+    # plain .to(device) and never gets its full-precision attempt (the
+    # 2026-07-16 Cluster F 70B models' case: ~140GB bf16 vs one 141GB H200,
+    # where weights alone fit but activations don't).
+    single_gpu_gib = (
+        torch.cuda.get_device_properties(0).total_memory / 1024**3
+        if device.startswith("cuda") else float("inf")
+    )
+    needs_offload = model_vram * 1.15 > single_gpu_gib  # +15% activation headroom
+    use_multi_gpu = (not load_8bit and not load_4bit) and model_vram > 12.0 and (
+        n_gpus > 1 or needs_offload
+    )
 
     if load_4bit:
         log.info("4-bit nf4 quantization (model_id=%s)", model_id)
@@ -571,6 +594,17 @@ def run_model(model_id: str, concepts: list[str], args, device_override: str | N
         )
 
     load_kwargs: dict = {}
+    if use_multi_gpu and needs_offload and n_gpus == 1:
+        # Without a cap, device_map="auto" packs the single GPU to ~100%
+        # (Llama-3.1-70B: 136.4/139.8 GiB placed, 445 MiB free) and the
+        # first forward pass OOMs — output_hidden_states retains every
+        # layer's states on-GPU until pooling, ~11 GiB at batch 16/seq 512
+        # for an 8192-dim 80-layer model, plus attention workspace. Reserve
+        # 18 GiB and let the overflow layers compute on CPU (bf16-identical,
+        # slower).
+        gpu_cap_gib = max(int(single_gpu_gib) - 18, 8)
+        load_kwargs["max_memory"] = {0: f"{gpu_cap_gib}GiB", "cpu": "170GiB"}
+        log.info("  Single-GPU offload: max_memory GPU cap %d GiB (18 GiB activation headroom)", gpu_cap_gib)
     if load_4bit:
         from transformers import BitsAndBytesConfig
         load_kwargs["quantization_config"] = BitsAndBytesConfig(
@@ -599,6 +633,16 @@ def run_model(model_id: str, concepts: list[str], args, device_override: str | N
     log_vram("after model load")
 
     batch = safe_batch_size(args.batch_size, device)
+    if needs_offload and not (load_8bit or load_4bit):
+        # In the single-GPU offload regime the activation budget is the
+        # binding constraint: at batch 16 both 70B-class bf16 attempts OOM'd
+        # by <0.5 GiB (output_hidden_states retains every layer's states
+        # until pooling — ~11 GiB at batch 16/seq 512/8192-dim/80 layers).
+        # Halving the batch halves that retention and clears the ceiling
+        # with margin; slower, but bf16 > speed here by decision
+        # (James 2026-07-16: close the precision gap).
+        batch = min(batch, 8)
+        log.info("  Offload regime: batch capped at %d for activation headroom", batch)
     run_summary = []
     t_start = time.time()
 

@@ -188,6 +188,7 @@ FAMILY_MAP: dict[str, tuple[str, int]] = {
     "Qwen/Qwen2.5-14B":               ("Qwen",    14000),
     "meta-llama/Llama-3.2-1B":         ("Llama",   1000),
     "meta-llama/Llama-3.2-3B":         ("Llama",   3000),
+    "meta-llama/Llama-3.1-8B":         ("Llama",   8000),
     "mistralai/Mistral-7B-v0.3":       ("Mistral", 7000),
     "google/gemma-2-2b":               ("Gemma",   2000),
     "google/gemma-2-9b":               ("Gemma",   9000),
@@ -297,7 +298,7 @@ def model_label(model_id: str) -> str:
     """
     family, _ = FAMILY_MAP.get(model_id, ("", 0))
     short     = model_id.split("/")[-1]
-    for prefix in ("pythia-", "opt-", "gpt2-", "Qwen2.5-", "Llama-3.2-",
+    for prefix in ("pythia-", "opt-", "gpt2-", "Qwen2.5-", "Llama-3.2-", "Llama-3.1-",
                    "Mistral-", "gemma-2-", "phi-"):
         if short.lower().startswith(prefix.lower()):
             size = short[len(prefix):]
