@@ -61,6 +61,13 @@ from rosetta_tools.gpu_utils import (
 )
 from rosetta_tools.extraction import extract_layer_activations
 from rosetta_tools.caz import compute_separation, compute_coherence, compute_velocity
+try:
+    # Inline extraction-time QA (rosetta_tools >= 1.5). Optional so this
+    # extractor still runs against an older pinned rosetta_tools — the quality
+    # block is simply omitted from the caz JSON when unavailable.
+    from rosetta_tools.caz import concept_quality_report
+except ImportError:
+    concept_quality_report = None
 from rosetta_tools.dataset import (
     load_concept_pairs, texts_by_label, CAZ_PRH_CONCEPTS,
 )
@@ -241,7 +248,8 @@ ROSETTA_DATA_ROOT = Path.home() / "rosetta_data"
 # ---------------------------------------------------------------------------
 
 
-def extract_layer_wise_metrics(model, tokenizer, pos_texts, neg_texts, device, batch_size):
+def extract_layer_wise_metrics(model, tokenizer, pos_texts, neg_texts, device, batch_size,
+                               compute_quality: bool = True):
     pos_by_layer = extract_layer_activations(
         model, tokenizer, pos_texts, device=device, batch_size=batch_size, pool="last"
     )
@@ -329,10 +337,26 @@ def extract_layer_wise_metrics(model, tokenizer, pos_texts, neg_texts, device, b
         "peak_separation": separations[peak_layer],
         "peak_depth_pct": round(100.0 * peak_layer / n_layers, 1),
     }
+
+    # Extraction-time QA / stability signals, embedded so every extraction
+    # carries its own quality report (split-half DOM reproducibility, peak
+    # separation, class balance, non-finite fraction). This is the standing,
+    # inline version of the post-hoc §3.5 split-calibration diagnostic — it runs
+    # at extraction time rather than as a later audit. See
+    # rosetta_tools.caz.concept_quality_report; the one check it cannot do from a
+    # single extraction (cross-model direction consistency, which catches a clean
+    # systematic label inversion) is a separate corpus-level pass. On by default;
+    # --no-quality (compute_quality=False) turns it off for a clean bare
+    # extraction. Guarded so a pre-1.5 rosetta_tools pin still extracts.
+    if compute_quality and concept_quality_report is not None:
+        metrics_dict["quality"] = concept_quality_report(
+            list(zip(pos_by_layer, neg_by_layer)), peak_layer,
+        )
     return metrics_dict, cal_acts, all_layer_cal
 
 
-def extract_concept(concept, model, tokenizer, device, n_pairs, batch_size, out_dir, split="train"):
+def extract_concept(concept, model, tokenizer, device, n_pairs, batch_size, out_dir, split="train",
+                    compute_quality: bool = True):
     out_path = out_dir / f"caz_{concept}.json"
     # Skip only when the FULL artifact set exists — caz alone is not enough.
     # This must mirror run_model's _needs_extraction: a dir holding caz but
@@ -371,7 +395,8 @@ def extract_concept(concept, model, tokenizer, device, n_pairs, batch_size, out_
 
     t0 = time.time()
     layer_data, cal_acts, all_layer_cal = extract_layer_wise_metrics(
-        model, tokenizer, pos_texts, neg_texts, device=device, batch_size=batch_size
+        model, tokenizer, pos_texts, neg_texts, device=device, batch_size=batch_size,
+        compute_quality=compute_quality,
     )
     elapsed = time.time() - t0
 
@@ -657,6 +682,7 @@ def run_model(model_id: str, concepts: list[str], args, device_override: str | N
             batch_size=batch,
             out_dir=out_dir,
             split=args.split,
+            compute_quality=not args.no_quality,
         )
         run_summary.append(summary)
         log_concept(concept, summary)
@@ -867,6 +893,10 @@ def parse_args():
                              "Default is to purge after each model (disk-space safety).")
     parser.add_argument("--clean-cache", action="store_true",
                         help="(deprecated, now default) Kept for backward compat")
+    parser.add_argument("--no-quality", action="store_true",
+                        help="Skip the inline extraction-time QA/stability report "
+                             "(split-half DOM reproducibility, separation, class balance) "
+                             "that is otherwise embedded in each caz JSON. Default: QA on.")
     return parser.parse_args()
 
 
