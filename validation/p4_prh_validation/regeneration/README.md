@@ -1,4 +1,4 @@
-# P4 data regeneration — PRH / Concept-Selective Convergence (A–F, corrected)
+# P4 data regeneration — PRH / Concept-Selective Convergence (A–E controlled primary + Cluster-F extension, corrected)
 
 Self-contained, self-validating scripts that regenerate **every headline P4
 quantity** from the published HuggingFace activation artifacts. Written
@@ -9,10 +9,14 @@ this cycle:
    calibration labels were inverted; corrected via a recorded-draw
    reconstruction (N=249). Exfiltration went 0.916 (rank 16) → **0.9869**
    (rank 7); grand mean 0.9709 → 0.9750.
-2. **Cluster F folded into the primary corpus.** falcon-40b, Llama-3.1-70B,
-   Qwen2.5-72B are now full roster members (A–E → **A–F, 33 models**), not a
-   separate case study. Grand mean → **0.9752**, 1,763 pairs. (The two 70–72B
-   models' calibration is 8-bit-derived — VRAM-bound — and disclosed as such.)
+2. **Cluster F reported as a frontier extension** (round-4 restructure,
+   superseding the earlier A–F-fold framing). falcon-40b, Llama-3.1-70B,
+   Qwen2.5-72B (8192-dim) are a compute-limited frontier *extension* to the
+   controlled **A–E primary** (30 models, grand mean **0.9750**, 1,661 pairs),
+   **not** folded into it — folding gives the A–F figure **0.9752** over 1,763
+   pairs, identical to three decimals. The 70–72B pair's calibration is
+   8-bit-derived (VRAM-bound) and the confound battery is computed on A–E only;
+   both disclosed (paper §2.1/§3.1/§4.5).
 
 These scripts do **not** depend on the older top-level `alignment/align.py`
 pipeline. They carry their own authoritative 33-model roster, their own
@@ -69,23 +73,31 @@ bash run_p4_regen.sh
 Outputs land in `./p4_regen_output/` (`prh_primary_xfam_samedim_C17.csv`,
 `step1_summary.json`, `step2_nulls.json`).
 
-## Expected values (2026-07-18, A–F, C=17, N=250)
+## Expected values (round-4, A–E controlled primary, C=17, N=250)
 
 | Quantity | Value |
 |---|---|
-| Grand mean aligned cosine | **0.9752** ± 0.0577 |
+| **Grand mean (A–E controlled)** | **0.9750** ± 0.058 (14/17 > 0.95) |
 | Grand median | 0.9938 |
-| Pairs | **1,763** (104 ordered × 17 − 5 unavailable) |
-| Models | 33 (A–F) |
-| Cluster F mean | 0.9785 |
-| Exfiltration | 0.9869 (rank 7 of 17) |
-| Weakest concept | deception 0.905 |
-| Permuted-label null | pooled −0.0009 ± 0.199, n=44,050, **z ≈ 1030** vs primary |
-| Universality ratio | **0.205** |
-| Peak-depth Δ (near-null) | +0.008 |
+| **A–E pairs** | **1,661** (98 ordered × 17 − 5 unavailable) |
+| A–E models | 30 (24 base + 6 instruct) |
+| Frontier extension (Cluster F) | 0.9785, 102 pairs; **A–F combined 0.9752**, 1,763 pairs |
+| Exfiltration | 0.9868 (rank 7 of 17) |
+| Weakest concept | deception 0.900 |
+| Permuted-label null (A–E) | −0.0010 ± 0.200, n=41,500; primary at **d ≈ 4.9 null-SDs / ~130 SE** (not z≈1030) |
+| Universality ratio | **0.209** |
+| Peak-depth Δ (near-null) | +0.0084 |
+| GEM handoff grand / exfil | 0.9635 / 0.9424 |
 
-`step1` prints a `check ...` line per headline quantity and flags any that
-differ from these.
+`consistency_check.py` verifies every one of these against the HF artifacts
+(currently 31/31 pass, 0 drift).
+
+**Note — step1/step2 still emit the A–F superset.** `step1_primary_alignment.py`
+and `step2_headline_nulls.py` currently compute the A–F headline (grand 0.9752,
+permuted null n=44,050); the A–E controlled primary above is the `dim ≠ 8192`
+subset. Reframing them to lead with A–E (F as the extension) is a tracked
+cleanup-pass item; until then, treat `consistency_check.py` — which reads the
+artifacts directly — as the source of truth for the paper's A–E numbers.
 
 ## Precision / provenance notes
 
