@@ -26,27 +26,22 @@ across the 23-model primary corpus (Appendix A).
 Node-count distribution (§5.4) is reported for pythia-6.9b — the permutation-
 ablation model that section analyses.
 
-STATUS / CAVEAT (2026-07-23)
----------------------------
-This reproduces the paper's *spread* and most rows to within ~0.01 (plurality
-exact; causation, agency, temporal_order, exfiltration, specificity within
-~0.01), which validates the dominant-node/N metric. It does NOT exactly match a
-handful of BIMODAL concepts (negation frozen 0.696 vs here 0.814; deception
-0.874 vs 0.782): the paper's low negation mean reflects models that hand off at
-the *shallow* mode (see §4.3, "negation's low mean masks a bimodal
-distribution"), whereas max-caz_score selects the deep mode for those models.
-The original one-off generator — which was never committed (this file closes
-that gap) — evidently used a different tie-break for bimodal concepts that is
-not recoverable from the gem artifacts alone. Two independent facts are solid
-regardless: (1) exfiltration, the concept behind the exfiltration-label-
-correction concern, moves only 0.831 -> 0.825 (within rounding; the correction
-is sign-invariant for angular-velocity handoff detection); (2) the §5.4
-pythia-6.9b node-count distribution here (2 in 13, 3 in {negation, sentiment},
-1 in {authorization, threat_severity}) reflects the current 1.3.1 gem store and
-differs from the preprint's ({causation, exfiltration, negation} at 3), because
-the gem JSONs were rebuilt at rosetta_tools 1.3.1 after the paper's vintage.
-Before re-freezing Table 3 on this output, confirm the bimodal tie-break so the
-low-mean concepts reproduce.
+STATUS (2026-07-23) — this is the ADOPTED canonical definition
+--------------------------------------------------------------
+P2's original Table 3 was produced by an uncommitted one-off against a gem
+vintage that no longer exists (the gem JSONs were rebuilt at rosetta_tools 1.3.1
+after the paper's vintage; the node structure changed — e.g. pythia-6.9b's
+3-node concepts went from {causation, exfiltration, negation} to
+{negation, sentiment}). Because that vintage is gone, the original numbers are
+not reproducible from the frozen store by ANY selection, so P2 §4.3/§5.4 were
+re-frozen on THIS generator's output (dominant-node/N over the current store) —
+now the single reproducible source of truth. The values differ from the
+pre-1.3.1 preprint for concepts whose nodes moved (notably the bimodal ones:
+negation 0.696->0.814, deception 0.874->0.782); exfiltration is essentially
+unchanged (0.831->0.825; the label correction is sign-invariant for
+angular-velocity handoff detection). The §5.4 permutation-ablation *results*
+(deepest-node-dominates, cross-disruption) still need a GPU re-run on the
+current 15 multi-node concepts — see the Hopper task / EXFIL_RECOMPUTE_PLAN.
 
 USAGE
 -----
