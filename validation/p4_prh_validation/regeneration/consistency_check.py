@@ -58,10 +58,11 @@ def canonical():
     v["handoff exfil"] = (round(pc["exfiltration"]["handoff_mean"], 4), "0.9424")
     return v
 
-# Superseded values that must NOT reappear as live claims (drift watchlist).
-# Each: (regex, what-it-should-be-now, note). Historical "was X → Y" mentions are
-# expected; the checker surfaces counts for human judgement, it does not auto-fail
-# on these unless the count exceeds the known-historical allowance.
+# Superseded values / revision framing that must NOT reappear as live claims.
+# Policy (set 2026-07-23): this is an unpublished paper, so it states current values
+# only — "was X → now Y" pre-correction framing is confined to the §3.1 exfiltration
+# correction note. Any pre-correction value or revision phrasing OUTSIDE that note is
+# drift. Allowances encode the legitimate keeps (e.g. 0.916 appears once, in the note).
 DRIFT = [
     (r"z ≈ 1030",              "d≈4.9 / z≈130", 0),
     (r"universality ratio.{0,12}0\.205", "0.209", 0),
@@ -69,6 +70,15 @@ DRIFT = [
     (r"\b1,766\b",             "1,768 nominal", 0),
     (r"\b1,659\b",             "1,661 A–E",     0),
     (r"~6\.5× SNR|6\.5× above","~4.5×",         0),
+    # pre-correction exfiltration values — only 0.916 is allowed, once, in the §3.1 note
+    (r"0\.916\b",              "0.9868 (except once in the §3.1 correction note)", 1),
+    (r"0\.9022\b",             "0.9424 handoff", 0),
+    (r"0\.9611\b",             "0.9635 handoff grand", 0),
+    (r"0\.9141\b",             "0.9868 transfer diag", 0),
+    # revision phrasing that implies a prior published version
+    (r"pre-correction",        "state current value only", 0),
+    (r"originally reported",   "state current value only", 0),
+    (r"previously grouped|formerly appeared|earlier apparent weakness", "state current value only", 0),
 ]
 
 def main():
