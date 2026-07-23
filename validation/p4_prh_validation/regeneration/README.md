@@ -41,6 +41,10 @@ result lives at `paper_n250/_alignment/prh_primary_xfam_samedim_C17.csv`.
 | 3. Random-text null | **GPU** | `gpu/g5b_random_text_null_original_corpus.py` | Fresh forward passes over the recovered neutral corpus. Deps `gpu/common.py`, `gpu/forward_utils.py`. |
 | 3b. Generator-confound (human-written) | **GPU** | `gpu/g7/extract_g7.py` (+ built datasets in `gpu/g7/`) | Extracts SST-5 / Gutenberg / Wikipedia contrastive sets; the §4.5 generator flank. |
 | 4. Figures (S4–S11) | CPU | `figures/fig_*.py` | Read corrected DOM from HF. Needs `rosetta_tools` (viz_style). |
+| 5. GEM handoff (§3.7) | CPU | `regen_gem_handoff_null.py` (17-concept permuted-*correspondence* null) + `regen_gem_handoff_exfil.py` (exfil primary+null) | Corrected handoff null + exfil handoff primary (0.9022→0.9424, grand 0.9611→0.9635). Reduced-Procrustes, self-validating vs full SVD. Reads corrected caz/gem/calibration from HF. |
+| 6. Proportional-depth per-concept (§3.8) | CPU | `regen_propdepth_perconcept.py [--concepts …]` | Per-concept depth-matched Δ, **full-dim** Procrustes on stored per-layer DOM. `--concepts exfiltration` → corrected +0.303; `--concepts moral_valence` → known-answer check (paper +0.305). |
+| 7. Transfer matrix / Figure 1 (§3.3) | CPU | `m4_transfer_exfil_fulldim.py` → splice into HF matrix → `figures/fig_transfer_matrix_17x17.py` | Recomputes exfil row+column **full-dim** (diagonal 0.9141→0.9868), then regenerates Figure 1. `m4_transfer_matrix_recompute.py` is the fast reduced-method full-matrix variant — **not** the published (full-dim) method; kept for reference only. |
+| 8. Corpus QA audit (§4.5) | CPU | `qa_corpus_audit.py` | Cross-model direction consistency + split-half DOM reproducibility over 33×17; the §4.5 "no hidden defect / only Gemma-2 flagged" audit. |
 
 Stages 1–2 here are the CPU-reproducible core. Stage 3 and the proportional-
 depth / handoff extensions to cluster F need GPU or F's per-layer trajectories
