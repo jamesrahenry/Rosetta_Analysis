@@ -98,8 +98,16 @@ wrong.** The true state of `rosetta_tools`:
 
 ## Sequencing
 
-1. Build + run the retrospective QA sweep (calibrates `QUALITY_THRESHOLDS`; also
-   a pre-submission corpus audit). The cross-model checker is built here.
-2. Execute this migration + coordinated version bump.
-3. Code cleanup + documentation pass (separate follow-up).
-4. Publish.
+> **Order reversed at publish time (James, 2026-07-25): publish FIRST, migrate AFTER.**
+> The papers were finished before this migration was done, and they cite
+> **rosetta_tools v1.3.1** (already tagged + DOI'd), which reproduces the full
+> corpus. Doing a major API refactor at publish time would change cited paths and
+> demand full re-validation against frozen numbers — not worth the risk. So the
+> papers ship on v1.3.1 as-is, and this whole migration is now **post-publication
+> forward work**. `Rosetta_Analysis` was re-pinned `@v1.5.0`(dangling)→`@v1.3.1`
+> and bumped to 1.0.0 on 2026-07-25 (commit `9412ca5`).
+
+1. ✅ Retrospective QA sweep — done (`qa_sweep_out/`, `cross_model_consistency.json`).
+2. ✅ **Publish** — papers on v1.3.1; RA pin fixed + tagged. *(Was step 4; promoted.)*
+3. ⏳ Execute this migration + version bump (2.0.0). *Post-publication.*
+4. ⏳ Code cleanup + documentation pass (separate follow-up).
