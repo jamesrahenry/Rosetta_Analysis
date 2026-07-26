@@ -105,7 +105,7 @@ wrong.** The true state of `rosetta_tools`:
 > demand full re-validation against frozen numbers — not worth the risk. So the
 > papers ship on v1.3.1 as-is, and this whole migration is now **post-publication
 > forward work**. `Rosetta_Analysis` was re-pinned `@v1.5.0`(dangling)→`@v1.3.1`
-> and bumped to 1.0.0 on 2026-07-25 (commit `9412ca5`).
+> and bumped to 1.1.0 on 2026-07-25 (commits `9412ca5`,`d0c3528` — `v1.0.0` tag was already taken).
 
 1. ✅ Retrospective QA sweep — done (`qa_sweep_out/`, `cross_model_consistency.json`).
 2. ✅ **Publish** — papers on v1.3.1; RA pin fixed + tagged. *(Was step 4; promoted.)*
