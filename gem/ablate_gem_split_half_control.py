@@ -172,6 +172,21 @@ def run_concept(model, tokenizer, layers, model_id: str, concept: str,
         log.warning("  %s: degenerate baseline on half B — skipped", concept)
         return None
 
+    # ---- Estimator noise floor (G-P2-2b) --------------------------------
+    # The agreement between two INDEPENDENT estimates of the same direction at
+    # the same layer. This is the denominator every rotation figure needs: an
+    # entry-exit cosine is only interpretable above the variance of the
+    # estimator producing it. Directly comparable to the companion paper's
+    # peak-layer split-half cosine (0.62-0.90 for Gemma-2 vs >=0.96 controls).
+    # Costs nothing extra — both halves' activations are already in memory.
+    floor = {}
+    for nm, layer in (("peak", pk_b), ("handoff", h_b)):
+        da = compute_dominant_direction(a_pos[layer], a_neg[layer])
+        db = compute_dominant_direction(b_pos[layer], b_neg[layer])
+        na, nb = np.linalg.norm(da), np.linalg.norm(db)
+        floor[nm] = (round(float(abs(np.dot(da / na, db / nb))), 4)
+                     if na > 1e-12 and nb > 1e-12 else None)
+
     # Every direction is estimated on B, so estimator quality is held constant
     # across arms; only the provenance of the layer index differs.
     arms = {}
@@ -189,6 +204,7 @@ def run_concept(model, tokenizer, layers, model_id: str, concept: str,
         "baseline_final_sep": round(baseline_final, 6),
         "layers": {"handoff_A": h_a, "handoff_B": h_b, "peak_A": pk_a, "peak_B": pk_b,
                    "handoff_agrees": h_a == h_b, "peak_agrees": pk_a == pk_b},
+        "split_half_dom_cosine": floor,
         "arms": arms,
     }
     # The headline contrast: does handoff beat peak, in-sample and out-of-sample?
@@ -251,12 +267,20 @@ def summarise(records: list[dict]) -> dict:
     outs = sum(r["out_of_sample_handoff_better"] for r in records)
     agree = sum(r["layers"]["handoff_agrees"] for r in records)
     n = len(records)
+    pk = [r["split_half_dom_cosine"]["peak"] for r in records
+          if r.get("split_half_dom_cosine", {}).get("peak") is not None]
+    hf = [r["split_half_dom_cosine"]["handoff"] for r in records
+          if r.get("split_half_dom_cosine", {}).get("handoff") is not None]
     return {
         "n": n,
         "in_sample_handoff_better": ins,
         "out_of_sample_handoff_better": outs,
         "handoff_layer_agreement": agree,
         "delta_pp": round(100.0 * (outs - ins) / n, 1) if n else None,
+        # the estimator noise floor — the denominator for any rotation figure
+        "noise_floor_peak_mean": round(sum(pk) / len(pk), 4) if pk else None,
+        "noise_floor_peak_min": round(min(pk), 4) if pk else None,
+        "noise_floor_handoff_mean": round(sum(hf) / len(hf), 4) if hf else None,
     }
 
 
