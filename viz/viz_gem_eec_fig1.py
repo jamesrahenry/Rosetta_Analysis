@@ -87,15 +87,21 @@ def load_eec_data(models_dir: Path = ROSETTA_PAPER_N250):
             model_id = nodes[0].get("model_id", "")
             if model_id not in PRIMARY_MODELS:
                 continue
-            primary = [n for n in nodes if n.get("phase") == "primary"]
-            if not primary:
-                primary = [nodes[0]]
-            node = primary[0]
-            eec = node.get("entry_exit_cosine")
-            concept = node.get("concept", gf.stem.replace("gem_", ""))
-            if eec is not None:
-                eecs_all.append(eec)
-                per_concept.setdefault(concept, []).append(eec)
+            # One value per (model, concept) pair: average across that pair's GEM
+            # nodes, then let each pair count once. The previous selector tested
+            # `phase == "primary"` against an int field (gem.py: `phase: int = 1`),
+            # so it never matched and silently fell through to nodes[0] — the
+            # SHALLOWEST region — making the figure a single-node statistic under
+            # an undisclosed convention. Averaging within the pair uses all nodes
+            # without letting finely-partitioned pairs dominate. See P2 §4.1.
+            vals = [n.get("entry_exit_cosine") for n in nodes
+                    if n.get("entry_exit_cosine") is not None]
+            if not vals:
+                continue
+            eec = float(np.mean(vals))
+            concept = nodes[0].get("concept", gf.stem.replace("gem_", ""))
+            eecs_all.append(eec)
+            per_concept.setdefault(concept, []).append(eec)
 
     return np.array(eecs_all), {k: np.array(v) for k, v in per_concept.items()}
 
