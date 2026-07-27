@@ -295,8 +295,19 @@ def run_model(model_id: str, args, rng: np.random.Generator) -> None:
 
 def aggregate(out_dir: Path) -> None:
     records = []
+    # NB: the aggregate this function writes is named gem_random_window_null.json,
+    # which itself matches "*_random_window_null.json" — so a naive glob re-reads
+    # the aggregate (a list) as if it were a per-model file (a dict) and dies with
+    # 'list' object has no attribute 'get' on the second invocation. Exclude it.
+    aggregate_name = "gem_random_window_null.json"
     for f in sorted(out_dir.glob("*_random_window_null.json")):
+        if f.name == aggregate_name:
+            continue
         d = json.loads(f.read_text())
+        if not isinstance(d, dict):
+            log.warning("Skipping %s — expected a per-model dict, got %s",
+                        f.name, type(d).__name__)
+            continue
         records.extend(d.get("results", []))
 
     if not records:
