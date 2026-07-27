@@ -68,7 +68,10 @@ log = logging.getLogger(__name__)
 OUT_DIR = Path.home() / "rosetta_data" / "results" / "gem_random_window_null"
 
 N_WINDOWS_DEFAULT = 100
-N_PAIRS = 50
+N_PAIRS = 50          # default; override with --n-pairs. The corpus is 250
+                      # (249 for exfiltration), so the default runs at a fifth
+                      # of corpus sample. Observed and null are computed on the
+                      # same draw, so a low N is internally valid but low-powered.
 BATCH_SIZE = 4
 
 
@@ -149,6 +152,7 @@ def run_concept(
     n_windows: int,
     device: str,
     rng: np.random.Generator,
+    n_pairs: int = N_PAIRS,
 ) -> dict | None:
     gem = load_gem(extraction_dir, concept)
     if gem is None:
@@ -178,7 +182,7 @@ def run_concept(
         min(n_layers, handoff_layer + (width - half)),
     ))
 
-    pairs = load_concept_pairs(concept, n=N_PAIRS)
+    pairs = load_concept_pairs(concept, n=n_pairs)
     pos_texts, neg_texts = texts_by_label(pairs)
 
     baseline_sep = baseline_separation(model, tokenizer, pos_texts, neg_texts, device)
@@ -266,7 +270,7 @@ def run_model(model_id: str, args, rng: np.random.Generator) -> None:
     results = []
     for concept in discover_concepts(extraction_dir):
         r = run_concept(model, tokenizer, concept, extraction_dir,
-                        args.n_windows, device, rng)
+                        args.n_windows, device, rng, n_pairs=args.n_pairs)
         if r:
             r["model_id"] = model_id
             results.append(r)
@@ -358,6 +362,8 @@ def main() -> None:
     group.add_argument("--model", type=str)
     group.add_argument("--all", action="store_true")
     parser.add_argument("--n-windows", type=int, default=N_WINDOWS_DEFAULT)
+    parser.add_argument("--n-pairs", type=int, default=N_PAIRS,
+                        help="Contrastive pairs per concept (corpus is 250; default 50)")
     parser.add_argument("--device", choices=["cuda", "cpu", "auto"], default="auto")
     parser.add_argument("--dtype", choices=["auto", "bfloat16", "float32"], default="auto")
     parser.add_argument("--batch-size", type=int, default=4)
