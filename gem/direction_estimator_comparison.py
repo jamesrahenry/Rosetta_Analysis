@@ -42,17 +42,40 @@ from pathlib import Path
 
 import numpy as np
 
-for _cand in (Path.home() / "rosetta_tools", Path.home() / "Source" / "Rosetta_Program" / "rosetta_tools"):
-    if _cand.exists():
-        sys.path.insert(0, str(_cand))
-        break
-
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score
 
 from rosetta_tools.paths import ROSETTA_MODELS, ROSETTA_RESULTS
-from rosetta_tools.probes import _split_indices
+
+
+def _split_indices(
+    n_pos: int, n_neg: int, eval_frac: float, seed: int
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Pair-aware train/eval split — implemented here, deliberately.
+
+    ``rosetta_tools.probes._split_indices`` gained this behaviour in v1.6.0, but the
+    GPU runner's ``~/rosetta_tools`` provenance is not guaranteed (``sync_repos``
+    swallows pull failures, and the Eigan fork it names for fresh clones ships a
+    differently-named package). A number this script produces goes into a paper, so it
+    must not depend on which library version happens to be on the host. Kept in sync
+    with the library implementation; the assertion in ``compare_one`` is the guard.
+
+    Contrastive pairs are minimal edits of one another, so permuting the classes
+    independently lets a pair straddle the split at ``2*f*(1-f)`` — 32% at
+    ``eval_frac=0.2``. A fitted estimator can then score a held-out item whose near
+    twin it trained on; a difference-of-means direction cannot. One permutation over
+    *pair* indices keeps both members on the same side.
+    """
+    rng = np.random.RandomState(seed)
+    if n_pos == n_neg:
+        n_eval = max(1, int(n_pos * eval_frac))
+        perm = rng.permutation(n_pos)
+        ev, tr = perm[:n_eval], perm[n_eval:]
+        return tr, tr.copy(), ev, ev.copy()
+    n_pos_eval, n_neg_eval = max(1, int(n_pos * eval_frac)), max(1, int(n_neg * eval_frac))
+    pp, np_ = rng.permutation(n_pos), rng.permutation(n_neg)
+    return pp[n_pos_eval:], np_[n_neg_eval:], pp[:n_pos_eval], np_[:n_neg_eval]
 
 DEFAULT_MODELS = [
     "EleutherAI_pythia_1.4b",
@@ -155,12 +178,20 @@ def summarise(rows: list[dict]) -> dict:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--models", nargs="*", default=DEFAULT_MODELS)
+    ap.add_argument("--model", action="append", dest="models",
+                    help="model slug or HF id; repeatable. Default: the 6-model subset.")
+    ap.add_argument("--models", nargs="*", dest="models_multi")
     ap.add_argument("--eval-frac", type=float, default=0.2)
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--out", type=Path,
                     default=ROSETTA_RESULTS / "direction_estimator_comparison_pairaware.json")
     a = ap.parse_args()
+    if a.models_multi:
+        a.models = (a.models or []) + a.models_multi
+    a.models = [m.replace("/", "_").replace("-", "_") if "/" in m else m
+                for m in (a.models or DEFAULT_MODELS)]
+    if len(a.models) == 1:
+        a.out = a.out.with_name(f"{a.models[0]}_direction_estimator_pairaware.json")
 
     rows: list[dict] = []
     for slug in a.models:

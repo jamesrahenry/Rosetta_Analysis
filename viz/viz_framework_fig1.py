@@ -4,15 +4,22 @@
 Two-panel comparison:
   Left  — single-region detector: sentiment in Pythia-1.4b
            Shows the naive approach: one allocation zone at the global S(l) peak.
-  Right — scored multi-region detector: credibility in Qwen2.5-0.5B
-           Shows six CAZes across depth, colour-coded by score category.
+  Right — scored multi-region detector: temporal_order in Pythia-1.4b
+           Shows a shallow + a deep CAZ, colour-coded by score category. Both are
+           causally active under ablation (74.5% separation reduction) — chosen over
+           the earlier Gemma-2 / Qwen2.5-0.5B examples, which the companion validation
+           [Henry, 2026c §6.9] documents as a readout-failure case (high CAZ scores,
+           ~zero ablation impact). Same model as the left panel: a controlled
+           unimodal-vs-multimodal contrast.
 
-Data source: rosetta_data/models/{slug}/caz_{concept}.json
+Data source: rosetta_data/paper_n250/{slug}/caz_{concept}.json (frozen paper corpus)
 Extraction:  rosetta_analysis/extraction/extract.py --model <model_id>
 
-Output: fig1_caz_detection.pdf + fig1_caz_detection.png
+Output: caz_detection_comparison.pdf + .png
 
 Written: 2026-05-06 20:00 UTC
+Updated: 2026-07-27 — right panel pivoted off Gemma-2/Qwen-0.5B to Pythia-1.4b/temporal_order
+         (P1 review B6); read from paper_n250; portable OUT_DIR + --out.
 """
 
 from __future__ import annotations
@@ -38,7 +45,26 @@ except ImportError:
     from rosetta_tools.rosetta_tools.caz import find_caz_regions_scored, LayerMetrics
     ROSETTA_DATA_ROOT = Path.home() / "rosetta_data"
 
-OUT_DIR = Path.home() / "Source" / "Rosetta_Program" / "papers" / "caz-framework" / "figures"
+# Paper figures come from the frozen paper corpus (paper_n250), not the live models/ tree.
+try:
+    from rosetta_tools.paths import ROSETTA_PAPER_N250
+except Exception:
+    ROSETTA_PAPER_N250 = ROSETTA_DATA_ROOT / "paper_n250"
+
+
+def _figures_dir() -> Path:
+    """First existing caz-framework repo checkout, across dev-box layouts."""
+    for base in (
+        Path.home() / "Source" / "Rosetta_Program",
+        Path.home() / "Games2" / "Eigan" / "Rosetta_Program",
+        Path.home() / "Eigan" / "Rosetta_Program",
+    ):
+        if (base / "papers" / "caz-framework").exists():
+            return base / "papers" / "caz-framework" / "figures"
+    return Path.home() / "Source" / "Rosetta_Program" / "papers" / "caz-framework" / "figures"
+
+
+OUT_DIR = _figures_dir()
 
 # --- Score category palette (matches GEM paper and caz-validation) ---
 CAT_COLOR = {
@@ -56,7 +82,7 @@ CAT_FILL = {
     "embedding":  "#F9DEC9",
 }
 CAT_LABEL = {
-    "black_hole": "Black hole  (score > 0.5)",
+    "black_hole": "Major  (score > 0.5)",
     "strong":     "Strong  (0.2 – 0.5)",
     "moderate":   "Moderate  (0.05 – 0.2)",
     "gentle":     "Gentle  (< 0.05)",
@@ -82,13 +108,18 @@ def model_slug(model_id: str) -> str:
 
 def load_caz(model_id: str, concept: str) -> dict:
     slug = model_slug(model_id)
-    path = ROSETTA_DATA_ROOT / "models" / slug / f"caz_{concept}.json"
-    if not path.exists():
-        raise FileNotFoundError(
-            f"Missing: {path}\n"
-            f"Run: python rosetta_analysis/extraction/extract.py --model {model_id}"
-        )
-    return json.loads(path.read_text())
+    candidates = [
+        ROSETTA_PAPER_N250 / slug / f"caz_{concept}.json",
+        ROSETTA_DATA_ROOT / "models" / slug / f"caz_{concept}.json",
+    ]
+    for path in candidates:
+        if path.exists():
+            return json.loads(path.read_text())
+    raise FileNotFoundError(
+        f"Missing caz_{concept}.json for {model_id}; looked in:\n  "
+        + "\n  ".join(str(p) for p in candidates)
+        + f"\nRun: python rosetta_analysis/extraction/extract.py --model {model_id}"
+    )
 
 
 def build_metrics(d: dict) -> list[LayerMetrics]:
@@ -213,10 +244,18 @@ def plot_multi_region(ax, d: dict, metrics: list[LayerMetrics], model_label: str
 
 
 def main():
+    import argparse
+    ap = argparse.ArgumentParser(description="Regenerate CAZ Framework Figure 1")
+    ap.add_argument("--out", type=Path, default=OUT_DIR,
+                    help="Output directory (default: caz-framework/figures for this checkout)")
+    args = ap.parse_args()
+    out_dir = args.out
+    out_dir.mkdir(parents=True, exist_ok=True)
+
     left_model   = "EleutherAI/pythia-1.4b"
     left_concept = "sentiment"
-    right_model   = "Qwen/Qwen2.5-0.5B"
-    right_concept = "credibility"
+    right_model   = "EleutherAI/pythia-1.4b"
+    right_concept = "temporal_order"
 
     d_left    = load_caz(left_model, left_concept)
     m_left    = build_metrics(d_left)
@@ -227,12 +266,12 @@ def main():
     fig.subplots_adjust(wspace=0.38)
 
     plot_single_region(axes[0], d_left,  m_left,  "Pythia-1.4b",  "Sentiment")
-    plot_multi_region( axes[1], d_right, m_right, "Qwen2.5-0.5B", "Credibility")
+    plot_multi_region( axes[1], d_right, m_right, "Pythia-1.4b",  "Temporal order")
 
     fig.tight_layout()
 
     for fmt in ("pdf", "png"):
-        out = OUT_DIR / f"caz_detection_comparison.{fmt}"
+        out = out_dir / f"caz_detection_comparison.{fmt}"
         fig.savefig(out, dpi=150, bbox_inches="tight")
         print(f"Saved: {out}")
 
