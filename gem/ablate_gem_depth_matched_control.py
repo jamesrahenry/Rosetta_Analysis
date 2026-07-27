@@ -150,44 +150,63 @@ def measure_ablation(
 
 def pick_site_matched_controls(
     gem: dict, targets: list[int], n_layers: int
-) -> tuple[list[int], list[int]] | None:
-    """Depth-matched control layers for the *ablatable sub-atlas*.
+) -> tuple[list[int], list[int], list[str]] | None:
+    """One depth-matched control layer per target GEM, for EVERY atlas.
 
-    Why a sub-atlas. ``ablate_gem.py`` ablates every target GEM's handoff layer at
-    once, so a control that ablates one layer differs from it in both depth and site
-    count. Matching site count exactly is what this picks — but it cannot cover the
-    whole atlas: ``caz.py`` pins the deepest segment's ``caz_end`` to ``N-1``
-    (613/613 in the store), so the deepest GEM has *no* post-CAZ layer and can never
-    receive a depth-matched control. Requiring every target to be matchable returns
-    nothing at all (verified: 0/629 pairs).
+    Why this is not simply "a post-CAZ layer per GEM". ``ablate_gem.py`` ablates every
+    target GEM's handoff layer at once, so a control that ablates one layer differs from
+    it in both depth and site count. Matching site count is the point — but a strictly
+    post-CAZ control cannot be built for a **terminal** GEM, one whose segment ends at
+    ``N-1``, because ``range(caz_end+1, n_layers)`` is empty there. Every atlas has a
+    terminal GEM, and a **single-GEM atlas is nothing but one**, so a post-CAZ-only rule
+    silently drops the entire single-GEM class.
 
-    So both arms are restricted to the GEMs that *can* be matched, and — importantly —
-    the handoff arm must then be **recomputed on that same subset** rather than read
-    back from the stored whole-atlas result. Comparing a whole-atlas handoff ablation
-    against a sub-atlas control would reintroduce the very mismatch this exists to
-    remove.
+    That class is the crux: it is the only case where the handoff arm ablates one site,
+    making it the one directly comparable to a one-site control. Measured on the stored
+    run: **111 of 493 pairs skipped, every one of them single-GEM**, leaving n=2 — the
+    two single-GEM atlases that happen not to reach ``N-1``. The comparison that decides
+    the section was being excluded by the control's own layer selection.
 
-    Returns ``(handoff_layers, control_layers)`` over the matchable subset, equal
-    length, or ``None`` if fewer than one GEM is matchable.
+    So terminal GEMs fall back to a **within-segment** control: the layer inside
+    ``[caz_start, caz_end]`` closest in relative depth to ``L_H``. This is a weaker
+    comparator — not post-CAZ, so it tests "this settled layer vs. a neighbour inside the
+    same segment" rather than "vs. an equally deep layer outside it" — and the mode is
+    recorded per site so the two can be reported separately rather than pooled.
+
+    Returns ``(handoff_layers, control_layers, modes)``, equal length, or ``None`` if no
+    target admits any control layer at all.
     """
     nodes = gem["nodes"]
     forbidden = {int(nodes[i]["handoff_layer"]) for i in targets}
     hs: list[int] = []
     cs: list[int] = []
+    modes: list[str] = []
     for i in targets:
         node = nodes[i]
         h = int(node["handoff_layer"])
         caz_end = int(node.get("caz_end", h - 1))
-        cands = [l for l in range(caz_end + 1, n_layers)
-                 if l not in forbidden and l not in cs]
-        if not cands:
-            continue                      # this GEM cannot be depth-matched; drop it
+        caz_start = int(node.get("caz_start", 0))
         target_depth = h / n_layers
-        cs.append(min(cands, key=lambda l: abs(l / n_layers - target_depth)))
+
+        post = [l for l in range(caz_end + 1, n_layers)
+                if l not in forbidden and l not in cs]
+        if post:
+            cs.append(min(post, key=lambda l: abs(l / n_layers - target_depth)))
+            modes.append("post_caz")
+            hs.append(h)
+            continue
+
+        within = [l for l in range(caz_start, caz_end + 1)
+                  if l not in forbidden and l not in cs]
+        if not within:
+            continue                      # nothing usable for this GEM; drop the site
+        cs.append(min(within, key=lambda l: abs(l / n_layers - target_depth)))
+        modes.append("within_segment")
         hs.append(h)
+
     if not cs:
         return None
-    return hs, cs
+    return hs, cs, modes
 
 
 def run_concept(
@@ -291,7 +310,7 @@ def run_concept(
     matched = pick_site_matched_controls(gem, targets, n_layers)
     sm: dict = {"site_matched": False, "reason": "no_matchable_gem"}
     if matched is not None:
-        h_layers, c_layers = matched
+        h_layers, c_layers, c_modes = matched
         all_layers = get_transformer_layers(model)
 
         def _ablate_at(layer_idxs, dirs):
@@ -334,6 +353,8 @@ def run_concept(
                 "atlas_coverage": round(len(c_layers) / len(targets), 3),
                 "handoff_layers": h_layers,
                 "control_layers": c_layers,
+                "control_modes": c_modes,
+                "all_post_caz": all(m == "post_caz" for m in c_modes),
                 "handoff_retained_pct": h_ret,
                 "control_retained_pct": c_ret,
                 "delta_pp": c_ret - h_ret,
