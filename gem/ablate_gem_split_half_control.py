@@ -214,8 +214,8 @@ def run_model(model_id: str, seed: int, overwrite: bool) -> None:
         return
 
     device = get_device("auto")
-    dtype = get_dtype("auto")
-    log_device_info(device)
+    dtype = get_dtype(device)          # signature is (device, prefer="auto") — device first
+    log_device_info(device, dtype)     # requires both
     log.info("Loading %s", model_id)
     model, tokenizer = load_causal_lm(model_id, device=device, dtype=dtype)
     layers = get_transformer_layers(model)
