@@ -147,6 +147,49 @@ def measure_ablation(
 # Per-concept run
 # ---------------------------------------------------------------------------
 
+
+def pick_site_matched_controls(
+    gem: dict, targets: list[int], n_layers: int
+) -> tuple[list[int], list[int]] | None:
+    """Depth-matched control layers for the *ablatable sub-atlas*.
+
+    Why a sub-atlas. ``ablate_gem.py`` ablates every target GEM's handoff layer at
+    once, so a control that ablates one layer differs from it in both depth and site
+    count. Matching site count exactly is what this picks — but it cannot cover the
+    whole atlas: ``caz.py`` pins the deepest segment's ``caz_end`` to ``N-1``
+    (613/613 in the store), so the deepest GEM has *no* post-CAZ layer and can never
+    receive a depth-matched control. Requiring every target to be matchable returns
+    nothing at all (verified: 0/629 pairs).
+
+    So both arms are restricted to the GEMs that *can* be matched, and — importantly —
+    the handoff arm must then be **recomputed on that same subset** rather than read
+    back from the stored whole-atlas result. Comparing a whole-atlas handoff ablation
+    against a sub-atlas control would reintroduce the very mismatch this exists to
+    remove.
+
+    Returns ``(handoff_layers, control_layers)`` over the matchable subset, equal
+    length, or ``None`` if fewer than one GEM is matchable.
+    """
+    nodes = gem["nodes"]
+    forbidden = {int(nodes[i]["handoff_layer"]) for i in targets}
+    hs: list[int] = []
+    cs: list[int] = []
+    for i in targets:
+        node = nodes[i]
+        h = int(node["handoff_layer"])
+        caz_end = int(node.get("caz_end", h - 1))
+        cands = [l for l in range(caz_end + 1, n_layers)
+                 if l not in forbidden and l not in cs]
+        if not cands:
+            continue                      # this GEM cannot be depth-matched; drop it
+        target_depth = h / n_layers
+        cs.append(min(cands, key=lambda l: abs(l / n_layers - target_depth)))
+        hs.append(h)
+    if not cs:
+        return None
+    return hs, cs
+
+
 def run_concept(
     model,
     tokenizer,
@@ -240,8 +283,66 @@ def run_concept(
     handoff_better = handoff_retained_pct < control_retained_pct
     delta_pp = control_retained_pct - handoff_retained_pct
 
-    log.info("    handoff_ret=%.1f%% control_ret=%.1f%% delta=%.1fpp handoff_better=%s",
-             handoff_retained_pct, control_retained_pct, delta_pp, handoff_better)
+    # ---- Site-matched arms ------------------------------------------------
+    # BOTH arms are recomputed here over the same sub-atlas. The stored
+    # handoff_retained_pct above is a WHOLE-atlas ablation; comparing it against a
+    # sub-atlas control would reintroduce the site-count mismatch this exists to
+    # remove. Only depth differs between the two arms below.
+    matched = pick_site_matched_controls(gem, targets, n_layers)
+    sm: dict = {"site_matched": False, "reason": "no_matchable_gem"}
+    if matched is not None:
+        h_layers, c_layers = matched
+        all_layers = get_transformer_layers(model)
+
+        def _ablate_at(layer_idxs, dirs):
+            with ExitStack() as stack:
+                for li, d in zip(layer_idxs, dirs):
+                    stack.enter_context(
+                        DirectionalAblator(all_layers[li],
+                                           torch.tensor(d, dtype=dtype, device=device),
+                                           dtype=dtype))
+                ap = extract_layer_activations(model, tokenizer, pos_texts, device=device,
+                                               batch_size=BATCH_SIZE, pool="last")
+                an = extract_layer_activations(model, tokenizer, neg_texts, device=device,
+                                               batch_size=BATCH_SIZE, pool="last")
+            return float(compute_separation(ap[-1], an[-1]))
+
+        def _unit(v):
+            v = np.asarray(v, dtype=np.float64)
+            n = np.linalg.norm(v)
+            return None if n < 1e-8 else v / n
+
+        # handoff arm: each matched GEM's settled direction at its own handoff layer
+        h_dirs, c_dirs = [], []
+        nodes = gem["nodes"]
+        by_handoff = {int(nodes[i]["handoff_layer"]): nodes[i] for i in targets}
+        for hl in h_layers:
+            h_dirs.append(_unit(by_handoff[hl]["settled_direction"]))
+        # control arm: centroid difference measured at each control layer
+        for cl in c_layers:
+            c_dirs.append(_unit(pos_acts[cl].mean(0) - neg_acts[cl].mean(0)))
+
+        if any(d is None for d in h_dirs + c_dirs):
+            sm = {"site_matched": False, "reason": "zero_norm_direction"}
+        else:
+            h_ret = 100.0 * _ablate_at(h_layers, h_dirs) / baseline_sep
+            c_ret = 100.0 * _ablate_at(c_layers, c_dirs) / baseline_sep
+            sm = {
+                "site_matched": True,
+                "n_sites": len(c_layers),
+                "n_targets_total": len(targets),
+                "atlas_coverage": round(len(c_layers) / len(targets), 3),
+                "handoff_layers": h_layers,
+                "control_layers": c_layers,
+                "handoff_retained_pct": h_ret,
+                "control_retained_pct": c_ret,
+                "delta_pp": c_ret - h_ret,
+                "handoff_better": h_ret < c_ret,
+            }
+            log.info("    site-matched %d/%d GEMs: handoff%s=%.1f%% control%s=%.1f%% delta=%.1fpp",
+                     len(c_layers), len(targets), h_layers, h_ret, c_layers, c_ret, c_ret - h_ret)
+    else:
+        log.info("    site-matched: no GEM in this atlas has a distinct post-CAZ layer")
 
     return {
         "concept": concept,
@@ -256,6 +357,8 @@ def run_concept(
         "control_retained_pct": control_retained_pct,
         "delta_pp": delta_pp,
         "handoff_better": handoff_better,
+        "n_targets": len(targets),
+        "site_matched_control": sm,
     }
 
 
@@ -263,14 +366,14 @@ def run_concept(
 # Per-model run
 # ---------------------------------------------------------------------------
 
-def run_model(model_id: str) -> None:
+def run_model(model_id: str, overwrite: bool = False) -> None:
     extraction_dir = find_extraction_dir(model_id)
     if extraction_dir is None:
         log.warning("No extraction dir for %s", model_id)
         return
 
     out_path = OUT_DIR / f"{extraction_dir.name}_depth_matched_control.json"
-    if out_path.exists():
+    if out_path.exists() and not overwrite:
         log.info("Already done: %s", model_id)
         return
 
@@ -370,6 +473,9 @@ def main() -> None:
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--model", type=str, help="Single model ID")
     group.add_argument("--all", action="store_true", help="All base models")
+    parser.add_argument("--overwrite", action="store_true",
+                        help="Recompute models that already have output (needed for the "
+                             "site-matched re-run, which adds a field to existing files).")
     args = parser.parse_args()
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -381,7 +487,7 @@ def main() -> None:
 
     for model_id in models:
         log.info("=== %s ===", model_id)
-        run_model(model_id)
+        run_model(model_id, overwrite=args.overwrite)
 
 
 if __name__ == "__main__":
