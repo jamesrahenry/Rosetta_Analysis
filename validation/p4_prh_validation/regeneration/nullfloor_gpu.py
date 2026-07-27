@@ -56,15 +56,7 @@ def log(m):
 
 
 def _dev(a):
-    """Host -> device as float64, passing device arrays through unchanged.
-
-    The device-resident branch is load-bearing: CuPy refuses implicit
-    conversion to NumPy, so `np.asarray()` on an array that is already on the
-    GPU raises. The surrogate path feeds device arrays straight back into
-    aligned_cosine_xp, which is exactly that case.
-    """
-    if ON_GPU and isinstance(a, _cp.ndarray):
-        return a.astype(xp.float64, copy=False)
+    """Host -> device as float64 (identity when running on NumPy)."""
     return xp.asarray(np.asarray(a, np.float64))
 
 
