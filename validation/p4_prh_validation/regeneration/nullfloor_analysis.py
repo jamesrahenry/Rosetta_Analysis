@@ -134,18 +134,32 @@ def run_spectrum(letters, concepts, K, out, max_pairs=None):
                     continue
                 if dom_s is None or dom_t is None:
                     continue
-                real_vals.append(C.aligned_cosine(dom_s, dom_t, cal_s, cal_t))
-                # spectrum-matched surrogates: independent random bases, real spectra
-                for _ in range(K):
-                    ss = spectrum_surrogate(sv_s, cal_s.shape[0], d, rng)
-                    tt = spectrum_surrogate(sv_t, cal_t.shape[0], d, rng)
-                    # class split derived from the array, not hardcoded: most
-                    # calibrations are n=500, but the exfiltration rerun is n=498
-                    # (249 pairs). No-op at n=500.
-                    hs, ht = ss.shape[0] // 2, tt.shape[0] // 2
-                    dss = dom_from(ss, slice(0, hs), slice(hs, ss.shape[0]))
-                    dtt = dom_from(tt, slice(0, ht), slice(ht, tt.shape[0]))
-                    floor_vals.append(C.aligned_cosine(dss, dtt, ss, tt))
+                # A mismatched calibration row count (e.g. 499 vs 500 from the
+                # blank-text row-alignment cases) makes the Procrustes fit throw.
+                # The primary pipeline excludes exactly these as "unavailable
+                # fits" (§3.1 corpus note); skip the pair here too rather than
+                # min-truncate, so the floor stays over the SAME pairs as the
+                # real cluster mean it is compared against. Buffer per-pair so a
+                # skip drops both the real value and its floor samples together.
+                try:
+                    rv_pair = C.aligned_cosine(dom_s, dom_t, cal_s, cal_t)
+                    fv_pair = []
+                    # spectrum-matched surrogates: independent random bases, real spectra
+                    for _ in range(K):
+                        ss = spectrum_surrogate(sv_s, cal_s.shape[0], d, rng)
+                        tt = spectrum_surrogate(sv_t, cal_t.shape[0], d, rng)
+                        # class split derived from the array, not hardcoded: most
+                        # calibrations are n=500, but the exfiltration rerun is n=498
+                        # (249 pairs). No-op at n=500.
+                        hs, ht = ss.shape[0] // 2, tt.shape[0] // 2
+                        dss = dom_from(ss, slice(0, hs), slice(hs, ss.shape[0]))
+                        dtt = dom_from(tt, slice(0, ht), slice(ht, tt.shape[0]))
+                        fv_pair.append(C.aligned_cosine(dss, dtt, ss, tt))
+                except Exception as e:
+                    log(f"  [{L}] skip {s} x {t} / {con}: {type(e).__name__}: {e}")
+                    continue
+                real_vals.append(rv_pair)
+                floor_vals.extend(fv_pair)
             log(f"  [{L}] {ci+1}/{len(concepts)} {con}: real n={len(real_vals)} floor n={len(floor_vals)} ({time.time()-t0:.0f}s)")
         rv, fv = np.array(real_vals), np.array(floor_vals)
         allres[L] = dict(d=d, n_pairs=len(prs),
@@ -189,14 +203,21 @@ def run_scramble(letters, concepts, K, out):
                     continue
                 if dom_s is None or dom_t is None:
                     continue
-                true = C.aligned_cosine(dom_s, dom_t, cal_s, cal_t)  # (A)
-                n = cal_t.shape[0]; h = n // 2
-                scr = []
-                for _ in range(K):
-                    ct = cal_t.copy()
-                    p = rng.permutation(h); q = rng.permutation(n - h) + h
-                    ct[:h] = cal_t[p]; ct[h:] = cal_t[q]     # within-class permute
-                    scr.append(C.aligned_cosine(dom_s, dom_t, cal_s, ct))  # (B) true DOMs
+                # Skip mismatched-row pairs (the primary pipeline's "unavailable
+                # fits"); a Procrustes shape mismatch would otherwise crash the
+                # whole cluster (E/D exit=1). See run_spectrum for the rationale.
+                try:
+                    true = C.aligned_cosine(dom_s, dom_t, cal_s, cal_t)  # (A)
+                    n = cal_t.shape[0]; h = n // 2
+                    scr = []
+                    for _ in range(K):
+                        ct = cal_t.copy()
+                        p = rng.permutation(h); q = rng.permutation(n - h) + h
+                        ct[:h] = cal_t[p]; ct[h:] = cal_t[q]     # within-class permute
+                        scr.append(C.aligned_cosine(dom_s, dom_t, cal_s, ct))  # (B) true DOMs
+                except Exception as e:
+                    log(f"  [{L}] skip {s} x {t} / {con}: {type(e).__name__}: {e}")
+                    continue
                 rows.append(dict(cluster=L, s=s, t=t, concept=con,
                                  true=float(true), scramble_mean=float(np.mean(scr)),
                                  scramble_ge_true=bool(np.mean(scr) >= true)))
