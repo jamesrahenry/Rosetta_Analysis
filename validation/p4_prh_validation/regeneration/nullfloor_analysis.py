@@ -45,6 +45,19 @@ def log(m):
     print(m, flush=True)
 
 
+def _seed(tag: str, base: int = 0) -> int:
+    """Deterministic per-cluster seed.
+
+    `hash()` on a str is salted per process (PYTHONHASHSEED), so seeding an RNG
+    with it makes runs unreproducible across invocations and hosts. This is a
+    fixed FNV-style rolling hash instead.
+    """
+    h = 2166136261
+    for ch in tag:
+        h = ((h ^ ord(ch)) * 16777619) % (2**32)
+    return (base + h) % (2**31)
+
+
 def pairs_in_cluster(letter):
     d = LETDIM[letter]
     slugs = [s for s, (f, dd) in C.ROSTER.items() if dd == d]
@@ -100,7 +113,7 @@ def run_spectrum(letters, concepts, K, out, max_pairs=None):
         if max_pairs and len(prs) > max_pairs:
             step = len(prs) / max_pairs
             prs = [prs[int(i * step)] for i in range(max_pairs)]
-        rng = np.random.default_rng(hash(L) % (2**31))
+        rng = np.random.default_rng(_seed(L))
         real_vals, floor_vals = [], []
         t0 = time.time()
         # cache real calibration+dom+spectrum per (slug,concept)
@@ -126,8 +139,12 @@ def run_spectrum(letters, concepts, K, out, max_pairs=None):
                 for _ in range(K):
                     ss = spectrum_surrogate(sv_s, cal_s.shape[0], d, rng)
                     tt = spectrum_surrogate(sv_t, cal_t.shape[0], d, rng)
-                    dss = dom_from(ss, slice(0, 250), slice(250, ss.shape[0]))
-                    dtt = dom_from(tt, slice(0, 250), slice(250, tt.shape[0]))
+                    # class split derived from the array, not hardcoded: most
+                    # calibrations are n=500, but the exfiltration rerun is n=498
+                    # (249 pairs). No-op at n=500.
+                    hs, ht = ss.shape[0] // 2, tt.shape[0] // 2
+                    dss = dom_from(ss, slice(0, hs), slice(hs, ss.shape[0]))
+                    dtt = dom_from(tt, slice(0, ht), slice(ht, tt.shape[0]))
                     floor_vals.append(C.aligned_cosine(dss, dtt, ss, tt))
             log(f"  [{L}] {ci+1}/{len(concepts)} {con}: real n={len(real_vals)} floor n={len(floor_vals)} ({time.time()-t0:.0f}s)")
         rv, fv = np.array(real_vals), np.array(floor_vals)
@@ -135,7 +152,12 @@ def run_spectrum(letters, concepts, K, out, max_pairs=None):
                          real_mean=float(rv.mean()), real_median=float(np.median(rv)),
                          floor_mean=float(fv.mean()), floor_median=float(np.median(fv)),
                          floor_lo=float(np.percentile(fv, 2.5)), floor_hi=float(np.percentile(fv, 97.5)),
-                         margin=float(rv.mean() - fv.mean()))
+                         margin=float(rv.mean() - fv.mean()),
+                         # raw samples retained so partial runs over disjoint concept
+                         # sets can be pooled exactly (percentiles included).
+                         concepts=list(concepts),
+                         real_vals=[float(x) for x in rv],
+                         floor_vals=[float(x) for x in fv])
         log(f"  ==> [{L}] REAL {rv.mean():.4f} | FLOOR {fv.mean():.4f} [{np.percentile(fv,2.5):.3f},{np.percentile(fv,97.5):.3f}] | margin {rv.mean()-fv.mean():.4f}")
         (out / "spectrum_floor.json").write_text(json.dumps(allres, indent=2))
     return allres
@@ -147,7 +169,7 @@ def run_scramble(letters, concepts, K, out):
     allres = {}
     for L in letters:
         d = LETDIM[L]; prs = pairs_in_cluster(L)
-        rng = np.random.default_rng(1000 + hash(L) % 9999)
+        rng = np.random.default_rng(_seed(L, 1000))
         rows = []
         t0 = time.time()
         cache = {}

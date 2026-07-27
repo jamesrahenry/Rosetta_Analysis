@@ -135,12 +135,24 @@ def load_calibration(slug: str, concept: str, peak: int, stage_dir: str | None =
     downloaded all-layer file afterwards. `stage_dir` (a real dir on a disk
     with room) is where big all-layer files are staged for F; defaults to
     $P4_REGEN_STAGE or ./_p4_stage.
+
+    If $P4_PEAK_CACHE is set, the extracted [n, d] slice is persisted there and
+    reused on later calls. Cluster F has no stored peak-layer file, so without
+    this every pass over F re-downloads ~1.2 GB per (model, concept); the cached
+    slice is ~16 MB. Unset by default, so other callers are unaffected.
     """
     peak_path = f"{HF_ROOT}/{slug}/calibration_{concept}.npy"
     try:
         return np.load(_hf(peak_path)).astype(np.float64)
     except Exception:
         pass  # not stored at peak-layer granularity (cluster F) — slice all-layer
+    cache_dir = os.environ.get("P4_PEAK_CACHE")
+    cpath = None
+    if cache_dir:
+        cpath = Path(cache_dir) / f"{slug}__{concept}__L{peak}.npy"
+        if cpath.exists():
+            return np.load(cpath).astype(np.float64)
+        cpath.parent.mkdir(parents=True, exist_ok=True)
     stage = Path(stage_dir or os.environ.get("P4_REGEN_STAGE", "./_p4_stage"))
     stage.mkdir(parents=True, exist_ok=True)
     big = _hf(f"{HF_ROOT}/{slug}/calibration_alllayer_{concept}.npy", local_dir=str(stage))
@@ -152,6 +164,9 @@ def load_calibration(slug: str, concept: str, peak: int, stage_dir: str | None =
         os.remove(big)
     except OSError:
         pass
+    if cpath is not None:
+        # source arrays are float32; store at source precision, cast on load
+        np.save(cpath, cal.astype(np.float32))
     return cal
 
 
