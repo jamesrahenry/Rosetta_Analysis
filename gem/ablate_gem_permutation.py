@@ -138,6 +138,7 @@ def run_concept(
     concept: str,
     extraction_dir: Path,
     device: str,
+    n_pairs: int = N_PAIRS,
 ) -> dict | None:
     gem_path = extraction_dir / f"gem_{concept}.json"
     if not gem_path.exists():
@@ -159,7 +160,7 @@ def run_concept(
     measure_layers = sorted(set(all_hl + [final_layer]))
 
     # Load texts
-    pairs = load_concept_pairs(concept, n=N_PAIRS)
+    pairs = load_concept_pairs(concept, n=n_pairs)
     pos_texts, neg_texts = texts_by_label(pairs)
     pos_texts = [t for t in pos_texts if t and t.strip()]
     neg_texts = [t for t in neg_texts if t and t.strip()]
@@ -276,6 +277,7 @@ def run_concept(
         "measure_layers": measure_layers,
         "nodes": node_summary,
         "baseline": {str(li): round(baseline[li], 4) for li in measure_layers},
+        "n_pairs": n_pairs,
         "subsets": subset_results,
         "derived": {
             "best_single_node": best_single_node,
@@ -336,7 +338,8 @@ def run_model(model_id: str, args) -> None:
     for concept in concepts:
         log.info("--- %s ---", concept)
         try:
-            r = run_concept(model, tokenizer, concept, extraction_dir, device)
+            r = run_concept(model, tokenizer, concept, extraction_dir, device,
+                            n_pairs=args.n_pairs)
             if r:
                 r["model_id"] = model_id
                 results.append(r)
@@ -476,6 +479,10 @@ def main() -> None:
     parser.add_argument("--device", choices=["cuda", "cpu", "auto"], default="auto")
     parser.add_argument("--dtype", choices=["auto", "bfloat16", "float32"], default="auto")
     parser.add_argument("--batch-size", type=int, default=BATCH_SIZE)
+    parser.add_argument("--n-pairs", type=int, default=N_PAIRS,
+                        help="Contrastive pairs per concept. The module default is 50, which is "
+                             "what §5.4 of the GEM paper reports; the corpus standard elsewhere "
+                             "is 250. Overriding this is the whole point of the corpus-N re-run.")
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--no-clean-cache", action="store_true")
     args = parser.parse_args()
