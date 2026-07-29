@@ -145,8 +145,10 @@ def main():
     prs = pairs_in_cluster(L)
     cons = list(C.CONCEPTS_17)
     combos = [(cons[i], cons[(i + 1) % len(cons)]) for i in range(len(cons))]
-    if a.max_pairs:
-        prs = prs[: a.max_pairs]
+    if a.max_pairs and len(prs) > a.max_pairs:
+        # strided, not head-slice: keeps model coverage (same as crossconcept)
+        step = len(prs) / a.max_pairs
+        prs = [prs[int(i * step)] for i in range(a.max_pairs)]
     if a.max_combos:
         combos = combos[: a.max_combos]
     depths = [float(x) for x in a.depths.split(",")]
