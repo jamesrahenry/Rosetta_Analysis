@@ -113,11 +113,21 @@ def main():
             except Exception:
                 continue
 
-            same_true = C.aligned_cosine(dom_sX, dom_tX, cal_sX, cal_tX)
-            cross_true_L = (C.aligned_cosine(dom_sY_L, dom_tY_L, cal_sX, cal_tX)
-                            if dom_sY_L is not None and dom_tY_L is not None else np.nan)
-            cross_true_P = (C.aligned_cosine(dom_sY_P, dom_tY_P, cal_sX, cal_tX)
-                            if dom_sY_P is not None and dom_tY_P is not None else np.nan)
+            # A mismatched calibration row count (e.g. 498/499 vs 500 from the
+            # blank-text row-alignment cases) makes the Procrustes fit throw.
+            # The primary pipeline excludes exactly these as "unavailable fits"
+            # (§3.1 corpus note); skip the cell here too, same as
+            # nullfloor_analysis.py. The throw happens before any rng draw, so
+            # surviving cells' scramble draws are unchanged.
+            try:
+                same_true = C.aligned_cosine(dom_sX, dom_tX, cal_sX, cal_tX)
+                cross_true_L = (C.aligned_cosine(dom_sY_L, dom_tY_L, cal_sX, cal_tX)
+                                if dom_sY_L is not None and dom_tY_L is not None else np.nan)
+                cross_true_P = (C.aligned_cosine(dom_sY_P, dom_tY_P, cal_sX, cal_tX)
+                                if dom_sY_P is not None and dom_tY_P is not None else np.nan)
+            except Exception as e:
+                log(f"  [{L}] skip {s} x {t} / fit={X} test={Y}: {type(e).__name__}: {e}")
+                continue
 
             # --- inheritance controls -------------------------------------
             # If Y is not orthogonal to X *within* each model, R (fit to carry X)
