@@ -206,8 +206,9 @@ def plot_multi_region(ax, d: dict, metrics: list[LayerMetrics], model_label: str
     # Shade CAZ regions
     for r in regions:
         cat = score_cat(r)
-        x0 = r.start / n * 100
-        x1 = r.end   / n * 100
+        # Pad ±0.5 layer so adjacent scored regions tile with no gap (§4.3).
+        x0 = (r.start - 0.5) / n * 100
+        x1 = (r.end   + 0.5) / n * 100
         ax.axvspan(x0, x1, color=CAT_FILL[cat], alpha=0.75, zorder=0, linewidth=0)
 
     ax.plot(depths, seps, color="#263238", linewidth=1.8, zorder=3)
