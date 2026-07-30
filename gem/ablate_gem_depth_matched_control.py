@@ -241,23 +241,30 @@ def run_concept(
         return None
 
     # Find control layer: post-CAZ, closest relative depth to L_H/N, excluding L_H
-    post_caz_candidates = [l for l in range(caz_end + 1, n_layers) if l != handoff_layer]
-    if not post_caz_candidates:
-        log.info("  Skipping %s — no post-CAZ candidates distinct from handoff (L_H=%d, N=%d)",
-                 concept, handoff_layer, n_layers)
-        return {"concept": concept, "skipped": True, "reason": "no_distinct_post_caz_layer",
-                "handoff_layer": handoff_layer, "n_layers": n_layers}
-
     target_depth = handoff_layer / n_layers
-    control_layer = min(post_caz_candidates, key=lambda l: abs(l / n_layers - target_depth))
-    control_rel_depth = control_layer / n_layers
+    post_caz_candidates = [l for l in range(caz_end + 1, n_layers) if l != handoff_layer]
+    if post_caz_candidates:
+        control_layer = min(post_caz_candidates, key=lambda l: abs(l / n_layers - target_depth))
+        control_rel_depth = control_layer / n_layers
+    else:
+        # Terminal/single-GEM atlas: no post-CAZ layer exists, so the LEGACY
+        # single-layer arm is undefined — but the site-matched block below
+        # (e336572's within-segment fallback) exists precisely for this class.
+        # Returning early here is what skipped the 111-pair single-GEM crux.
+        log.info("  %s: no post-CAZ layer distinct from handoff (L_H=%d, N=%d) — "
+                 "legacy arm skipped, site-matched arms still run", concept,
+                 handoff_layer, n_layers)
+        control_layer = None
+        control_rel_depth = None
 
     # Concept direction at control layer: centroid difference (same as DOM vector computation)
     pairs = load_concept_pairs(concept, n=N_PAIRS)
     pos_texts, neg_texts = texts_by_label(pairs)
 
-    log.info("  %s: L_H=%d (%.3f), control=%d (%.3f), stored_handoff_ret=%.1f%%",
-             concept, handoff_layer, target_depth, control_layer, control_rel_depth,
+    log.info("  %s: L_H=%d (%.3f), control=%s, stored_handoff_ret=%.1f%%",
+             concept, handoff_layer, target_depth,
+             ("%d (%.3f)" % (control_layer, control_rel_depth)
+              if control_layer is not None else "none/terminal"),
              handoff_retained_pct)
 
     # Extract activations at all layers to get control direction
@@ -270,37 +277,39 @@ def run_concept(
         batch_size=BATCH_SIZE, pool="last",
     )
 
-    pos_ctrl = pos_acts[control_layer]
-    neg_ctrl = neg_acts[control_layer]
-    direction = (pos_ctrl.mean(0) - neg_ctrl.mean(0)).astype(np.float64)
-    norm = np.linalg.norm(direction)
-    if norm < 1e-8:
-        log.warning("  Zero-norm direction at control layer for %s, skipping", concept)
-        return None
-    direction /= norm
-
-    # Ablate at control layer, measure final-layer separation
+    # Baseline + dtype are shared by both the legacy and site-matched arms
     baseline_sep = float(compute_separation(pos_acts[-1], neg_acts[-1]))
     if baseline_sep <= 0:
         log.warning("  Zero baseline for %s, skipping", concept)
         return None
-
     dtype = next(model.parameters()).dtype
-    dir_t = torch.tensor(direction, dtype=dtype, device=device)
-    with DirectionalAblator(get_transformer_layers(model)[control_layer], dir_t, dtype=dtype):
-        ctrl_pos = extract_layer_activations(
-            model, tokenizer, pos_texts, device=device,
-            batch_size=BATCH_SIZE, pool="last",
-        )
-        ctrl_neg = extract_layer_activations(
-            model, tokenizer, neg_texts, device=device,
-            batch_size=BATCH_SIZE, pool="last",
-        )
-    control_sep = float(compute_separation(ctrl_pos[-1], ctrl_neg[-1]))
-    control_retained_pct = 100.0 * control_sep / baseline_sep if baseline_sep > 0 else float("nan")
 
-    handoff_better = handoff_retained_pct < control_retained_pct
-    delta_pp = control_retained_pct - handoff_retained_pct
+    # ---- Legacy single-layer control arm (undefined for terminal atlases) --
+    control_retained_pct = handoff_better = delta_pp = None
+    if control_layer is not None:
+        direction = (pos_acts[control_layer].mean(0)
+                     - neg_acts[control_layer].mean(0)).astype(np.float64)
+        norm = np.linalg.norm(direction)
+        if norm < 1e-8:
+            log.warning("  Zero-norm direction at control layer for %s — "
+                        "legacy arm skipped, site-matched arms still run", concept)
+        else:
+            direction /= norm
+            dir_t = torch.tensor(direction, dtype=dtype, device=device)
+            with DirectionalAblator(get_transformer_layers(model)[control_layer],
+                                    dir_t, dtype=dtype):
+                ctrl_pos = extract_layer_activations(
+                    model, tokenizer, pos_texts, device=device,
+                    batch_size=BATCH_SIZE, pool="last",
+                )
+                ctrl_neg = extract_layer_activations(
+                    model, tokenizer, neg_texts, device=device,
+                    batch_size=BATCH_SIZE, pool="last",
+                )
+            control_sep = float(compute_separation(ctrl_pos[-1], ctrl_neg[-1]))
+            control_retained_pct = 100.0 * control_sep / baseline_sep
+            handoff_better = handoff_retained_pct < control_retained_pct
+            delta_pp = control_retained_pct - handoff_retained_pct
 
     # ---- Site-matched arms ------------------------------------------------
     # BOTH arms are recomputed here over the same sub-atlas. The stored
@@ -467,22 +476,48 @@ def aggregate() -> None:
     if not all_pairs:
         return
 
-    n = len(all_pairs)
-    wins = sum(1 for r in all_pairs if r["handoff_better"])
-    ties = sum(1 for r in all_pairs if r["delta_pp"] == 0)
-    mean_delta = float(np.mean([r["delta_pp"] for r in all_pairs]))
+    # Legacy single-layer arm: defined only for non-terminal atlases (delta_pp
+    # is None where the post-CAZ control does not exist).
+    legacy = [r for r in all_pairs if r.get("delta_pp") is not None]
+    summary = {"n_pairs_total": len(all_pairs), "legacy": None, "site_matched": None}
+    if legacy:
+        n = len(legacy)
+        wins = sum(1 for r in legacy if r["handoff_better"])
+        summary["legacy"] = {
+            "n_pairs": n,
+            "handoff_beats_control": wins,
+            "handoff_beats_control_pct": 100.0 * wins / n,
+            "ties": sum(1 for r in legacy if r["delta_pp"] == 0),
+            "mean_delta_pp": float(np.mean([r["delta_pp"] for r in legacy])),
+        }
 
-    summary = {
-        "n_pairs": n,
-        "handoff_beats_control": wins,
-        "handoff_beats_control_pct": 100.0 * wins / n if n else 0,
-        "ties": ties,
-        "mean_delta_pp": mean_delta,
-    }
+    # Site-matched arms (the P2 §5.5 / P3 F8 comparison), split by control mode
+    # per the pick_site_matched_controls docstring: pure post-CAZ vs any
+    # within-segment fallback are different comparators — never pooled silently.
+    sm_rows = [r for r in all_pairs
+               if r.get("site_matched_control", {}).get("site_matched")]
+    for label, rows in (
+        ("site_matched_post_caz",
+         [r for r in sm_rows if r["site_matched_control"]["all_post_caz"]]),
+        ("site_matched_with_fallback",
+         [r for r in sm_rows if not r["site_matched_control"]["all_post_caz"]]),
+    ):
+        if not rows:
+            continue
+        n = len(rows)
+        sm = [r["site_matched_control"] for r in rows]
+        summary[label] = {
+            "n_pairs": n,
+            "handoff_beats_control": sum(1 for x in sm if x["handoff_better"]),
+            "handoff_beats_control_pct":
+                100.0 * sum(1 for x in sm if x["handoff_better"]) / n,
+            "mean_delta_pp": float(np.mean([x["delta_pp"] for x in sm])),
+        }
+    summary["site_matched"] = {"n_pairs": len(sm_rows)}
+
     summary_path = OUT_DIR / "aggregate.json"
     summary_path.write_text(json.dumps(summary, indent=2))
-    log.info("Aggregate: %d pairs, handoff beats control %d/%d (%.1f%%), mean delta %.2fpp",
-             n, wins, n, summary["handoff_beats_control_pct"], mean_delta)
+    log.info("Aggregate: %s", json.dumps(summary, indent=2))
 
 
 # ---------------------------------------------------------------------------
