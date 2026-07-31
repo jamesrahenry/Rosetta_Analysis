@@ -112,6 +112,8 @@ def scramble_within_class(cal, rng):
     out = cal.copy()
     out[:h] = cal[rng.permutation(h)]
     out[h:] = cal[rng.permutation(n - h) + h]
+    # audit: class-mean invariance, asserted rather than assumed
+    assert np.allclose(out[:h].mean(0), cal[:h].mean(0), atol=1e-10)
     return out
 
 

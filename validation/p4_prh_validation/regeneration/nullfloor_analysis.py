@@ -91,7 +91,9 @@ def run_validate(K, out):
     log("=== PURE-NOISE floor (reviewer: 768->0.824 2048->0.945 4096->0.968 5120->0.973) ===")
     res = {}
     rng = np.random.default_rng(0)
-    for d in [768, 1024, 2048, 2560, 3584, 4096, 5120]:
+    # 8192 included so PHASE_A §0's cluster-F row regenerates from shipped code
+    # (audit gap: it was previously produced ad hoc and not reproducible here)
+    for d in [768, 1024, 2048, 2560, 3584, 4096, 5120, 8192]:
         vals = []
         for _ in range(K):
             a = rng.standard_normal((500, d)); b = rng.standard_normal((500, d))
@@ -214,6 +216,8 @@ def run_scramble(letters, concepts, K, out):
                         ct = cal_t.copy()
                         p = rng.permutation(h); q = rng.permutation(n - h) + h
                         ct[:h] = cal_t[p]; ct[h:] = cal_t[q]     # within-class permute
+                        # audit: class-mean invariance, asserted rather than assumed
+                        assert np.allclose(ct[:h].mean(0), cal_t[:h].mean(0), atol=1e-10)
                         scr.append(C.aligned_cosine(dom_s, dom_t, cal_s, ct))  # (B) true DOMs
                 except Exception as e:
                     log(f"  [{L}] skip {s} x {t} / {con}: {type(e).__name__}: {e}")
@@ -232,10 +236,27 @@ def run_scramble(letters, concepts, K, out):
     return allres
 
 
-def run_nsweep(letter, concepts, K, out):
-    """Real aligned cos and spectrum floor vs n at one cluster."""
+def run_nsweep(letter, concepts, K, out, max_pairs=None):
+    """Real aligned cos and spectrum floor vs n at one cluster.
+
+    Rewritten 2026-07-31 (audit gaps): the original run compared a real arm
+    using the STORED full-500-row DOM against a floor arm whose DOM came from
+    only n surrogate rows, and re-estimated the surrogate spectrum from each
+    n-row subsample — so "fixed spectrum" was false as coded and the arms were
+    asymmetric. Now, per n, four like-for-like series:
+      real_stored   — stored full-N DOM, R fit on the n-row subsample (legacy)
+      real_sub      — DOM recomputed from the same n rows (symmetric with floors)
+      floor_subspec — surrogate spectrum estimated from the n-row subsample
+      floor_fullspec— surrogate spectrum = full-N singular values, top-n,
+                      scaled by sqrt(n/N): the spectral SHAPE genuinely held
+                      fixed while only n varies — the pure d/n series.
+    Per-pair guard (498-row calibrations skip, logged), like nullfloor floors.
+    """
     L = letter; d = LETDIM[L]; prs = pairs_in_cluster(L)
-    log(f"=== N-SWEEP at cluster {L} (d={d}) ===")
+    if max_pairs and len(prs) > max_pairs:
+        step = len(prs) / max_pairs
+        prs = [prs[int(i * step)] for i in range(max_pairs)]
+    log(f"=== N-SWEEP at cluster {L} (d={d}), {len(prs)} pairs ===")
     rng = np.random.default_rng(7)
     cache = {}
     def get(slug, con):
@@ -246,23 +267,47 @@ def run_nsweep(letter, concepts, K, out):
     res = {}
     for n in [100, 250, 500]:
         half = n // 2
-        real_vals, floor_vals = [], []
+        vals = {k: [] for k in ("real_stored", "real_sub", "floor_subspec", "floor_fullspec")}
         for con in concepts:
             for (s, t) in prs:
-                dom_s, cal_s = get(s, con); dom_t, cal_t = get(t, con)
-                if dom_s is None or dom_t is None: continue
-                N = cal_s.shape[0]; H = N // 2
-                pi = np.r_[rng.choice(H, half, False), H + rng.choice(N - H, half, False)]
-                cs, ct = cal_s[pi], cal_t[pi]
-                # real DOM is fixed (stored); alignment R now fit on n rows
-                real_vals.append(C.aligned_cosine(dom_s, dom_t, cs, ct))
-                sv_s, sv_t = real_spectrum(cs), real_spectrum(ct)
-                for _ in range(K):
-                    ss = spectrum_surrogate(sv_s, n, d, rng); tt = spectrum_surrogate(sv_t, n, d, rng)
-                    dss = dom_from(ss, slice(0, half), slice(half, n)); dtt = dom_from(tt, slice(0, half), slice(half, n))
-                    floor_vals.append(C.aligned_cosine(dss, dtt, ss, tt))
-        res[n] = dict(dn=d / n, real_mean=float(np.mean(real_vals)), floor_mean=float(np.mean(floor_vals)))
-        log(f"  n={n} (d/n={d/n:.1f}): REAL {np.mean(real_vals):.4f} | FLOOR {np.mean(floor_vals):.4f}")
+                try:
+                    dom_s, cal_s = get(s, con); dom_t, cal_t = get(t, con)
+                    if dom_s is None or dom_t is None: continue
+                    N = cal_s.shape[0]; H = N // 2
+                    if cal_t.shape[0] != N:
+                        raise ValueError(f"row mismatch {N} vs {cal_t.shape[0]}")
+                    pi = np.r_[rng.choice(H, half, False), H + rng.choice(N - H, half, False)]
+                    cs, ct = cal_s[pi], cal_t[pi]
+                    b = {}
+                    b["real_stored"] = C.aligned_cosine(dom_s, dom_t, cs, ct)
+                    ds_sub = dom_from(cs, slice(0, half), slice(half, n))
+                    dt_sub = dom_from(ct, slice(0, half), slice(half, n))
+                    b["real_sub"] = C.aligned_cosine(ds_sub, dt_sub, cs, ct)
+                    sv_s_sub, sv_t_sub = real_spectrum(cs), real_spectrum(ct)
+                    sv_s_full, sv_t_full = real_spectrum(cal_s), real_spectrum(cal_t)
+                    scale = np.sqrt(n / N)
+                    b["floor_subspec"], b["floor_fullspec"] = [], []
+                    for _ in range(K):
+                        for key, svs, svt in (("floor_subspec", sv_s_sub, sv_t_sub),
+                                              ("floor_fullspec", sv_s_full[:n] * scale,
+                                               sv_t_full[:n] * scale)):
+                            ss = spectrum_surrogate(svs, n, d, rng)
+                            tt = spectrum_surrogate(svt, n, d, rng)
+                            dss = dom_from(ss, slice(0, half), slice(half, n))
+                            dtt = dom_from(tt, slice(0, half), slice(half, n))
+                            b[key].append(C.aligned_cosine(dss, dtt, ss, tt))
+                except Exception as e:
+                    log(f"  [{L} n={n}] skip {s} x {t} / {con}: {type(e).__name__}: {e}")
+                    continue
+                vals["real_stored"].append(b["real_stored"])
+                vals["real_sub"].append(b["real_sub"])
+                vals["floor_subspec"].extend(b["floor_subspec"])
+                vals["floor_fullspec"].extend(b["floor_fullspec"])
+        res[n] = dict(dn=d / n, n_fits=len(vals["real_sub"]),
+                      **{k: float(np.mean(v)) for k, v in vals.items()})
+        log(f"  n={n} (d/n={d/n:.1f}): real_stored {res[n]['real_stored']:.4f} "
+            f"real_sub {res[n]['real_sub']:.4f} | floor_subspec {res[n]['floor_subspec']:.4f} "
+            f"floor_fullspec {res[n]['floor_fullspec']:.4f}  (fits {res[n]['n_fits']})")
     (out / f"nsweep_{L}.json").write_text(json.dumps(res, indent=2))
 
 
@@ -286,7 +331,7 @@ def main():
     if a.mode in ("scramble", "all"):
         run_scramble(letters, concepts, a.K, out)
     if a.mode in ("nsweep", "all"):
-        run_nsweep(a.nsweep_cluster, concepts, a.K, out)
+        run_nsweep(a.nsweep_cluster, concepts, a.K, out, a.max_pairs)
 
 
 if __name__ == "__main__":
