@@ -1,5 +1,13 @@
 # GPU run: site-matched depth control — the P2 §5.5 / P3 F8 joint experiment
 
+> **✅ EXECUTED 2026-07-30 16:43–22:18 UTC by claude:prepub-antagonist** (~5.5h actual, all 29
+> models, 493/493 cells incl. the 113 single-GEM crux — the @12c1a0f fix held). **Result: NULL** —
+> the handoff advantage does not survive the genuine control (site-matched p=0.815 model-level;
+> legacy arm reproduces the frozen +41.6pp, so the effect was site count). Artifact:
+> HF `paper_n250/_gem_depth_matched/`. Analysis of record:
+> `Rosetta_Program/papers/shared/SITE_MATCHED_DEPTH_CONTROL_RESULT_2026-07-30.md`. Regenerate any
+> cut with `validation/crosspaper/site_matched_cuts.py` (30s, no GPU). **Do not re-run.**
+
 *Written: 2026-07-30 14:55 UTC by claude:p4-phaseA-dive. Approved by James 2026-07-30
 ("just the one"). The single GPU run currently authorized for P1–P3; no other runs ride along.*
 
