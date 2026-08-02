@@ -75,7 +75,7 @@ from rosetta_tools.gem import discover_concepts, find_extraction_dir
 from rosetta_tools.gpu_utils import (
     get_device, get_dtype, load_causal_lm, log_device_info, release_model,
 )
-from rosetta_tools.paths import ROSETTA_RESULTS
+from rosetta_tools.paths import ROSETTA_PAPER_N250, ROSETTA_RESULTS
 
 log = logging.getLogger("delta_pca")
 
@@ -324,6 +324,23 @@ def summarise(rows: list[dict]) -> dict:
     return out
 
 
+def _m16_dir(ext_dir: Path | None) -> Path:
+    """Locate M16's side-tree for the known-result gate.
+
+    `find_extraction_dir` resolves under ROSETTA_MODELS (`~/rosetta_data/models`), which
+    the runner populates by rsync from `paper_n250/<slug>/`. The side-trees are NOT
+    rsynced, so `ext_dir.parent / "_p2_direction_estimator"` does not exist on the runner
+    and the gate would silently report `artifact_missing` — a green run with no insurance,
+    which is the failure mode this gate exists to prevent. Prefer the frozen snapshot root
+    and fall back to the extraction root for local runs against `paper_n250/` directly.
+    """
+    for cand in (ROSETTA_PAPER_N250 / "_p2_direction_estimator",
+                 *( (ext_dir.parent / "_p2_direction_estimator",) if ext_dir else () )):
+        if cand.is_dir():
+            return cand
+    return ROSETTA_PAPER_N250 / "_p2_direction_estimator"
+
+
 def known_result_gate(rows: list[dict], m16_dir: Path, tol: float = 1e-6) -> dict:
     """Gate 4 — `dom_handoff` at full budget IS M16's `dom_auroc`. Same computation."""
     full = max(BUDGETS)
@@ -391,6 +408,13 @@ def main() -> int:
                          "--model <one> --max-concepts 2 validates the whole path "
                          "(extraction, layers, arms, gate) in ~2 minutes before the "
                          "full roster is committed to.")
+    ap.add_argument("--aggregate-only", action="store_true",
+                    help="Pool the per-model JSONs already in --out-dir and write "
+                         "aggregate.json. No GPU, no model load. The runner invokes the "
+                         "script once per model, so the cross-model primary estimand and "
+                         "the known-result gate are computed here rather than being "
+                         "reimplemented in the flow — the pre-registered estimand lives "
+                         "in exactly one place.")
     ap.add_argument("--allow-gate-mismatch", action="store_true",
                     help="Do not abort on a known-result-gate failure. Debugging only — "
                          "a mismatch means the harness diverged and no number is readable.")
@@ -402,13 +426,25 @@ def main() -> int:
 
     all_rows: list[dict] = []
     m16_dir: Path | None = None
-    for mid in models:
+
+    if a.aggregate_only:
+        for f in sorted(out_dir.glob("*_delta_pca.json")):
+            all_rows.extend(json.loads(f.read_text()).get("detail", []))
+        if not all_rows:
+            log.error("--aggregate-only: no per-model JSONs in %s", out_dir)
+            return 1
+        m16_dir = _m16_dir(None)
+        log.info("aggregate-only: pooled %d cells from %d model files",
+                 len(all_rows), len(list(out_dir.glob("*_delta_pca.json"))))
+        models = sorted({r["model"] for r in all_rows})
+
+    for mid in ([] if a.aggregate_only else models):
         ext_dir = find_extraction_dir(mid)
         if ext_dir is None:
             log.warning("%s: no extraction dir — skipped", mid)
             continue
         if m16_dir is None:
-            m16_dir = ext_dir.parent / "_p2_direction_estimator"
+            m16_dir = _m16_dir(ext_dir)
         concepts = discover_concepts(ext_dir)
         if not concepts:
             log.warning("%s: no concepts — skipped", mid)
@@ -486,9 +522,12 @@ def main() -> int:
                     "comparison is uninformative and the cosines are the primary result.")
     log.info("wrote %s", out_dir / "aggregate.json")
 
-    if gate.get("status") == "fail" and not a.allow_gate_mismatch:
-        log.error("KNOWN-RESULT GATE FAILED — the harness diverged from M16. "
-                  "No other number in this run may be read. See aggregate.json.")
+    if gate.get("status") != "pass" and not a.allow_gate_mismatch:
+        log.error("KNOWN-RESULT GATE DID NOT PASS (%s) — either the harness diverged from "
+                  "M16 or the reference artifact was never found at %s. A gate that did "
+                  "not run is not a gate that passed; no number in this run may be read. "
+                  "Fetch paper_n250/_p2_direction_estimator/ and re-aggregate.",
+                  gate.get("status"), gate.get("artifact_dir"))
         return 2
     return 0
 
