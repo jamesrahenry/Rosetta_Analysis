@@ -69,7 +69,13 @@ import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
+# Must be set before the first CUDA context is created (cuBLAS reads it lazily on first
+# op, but torch imports below already pull in CUDA machinery) -- part of forcing bitwise
+# run-to-run reproducibility for the known-result gate. See _force_determinism() below.
+os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
+
 import numpy as np
+import torch
 from sklearn.metrics import roc_auc_score
 
 from rosetta_tools.dataset import load_concept_pairs, texts_by_label
@@ -419,8 +425,37 @@ def _provenance(models: list[str], eval_frac: float, seed: int) -> dict:
     }
 
 
+def _force_determinism(logger: logging.Logger) -> None:
+    """Force bitwise-reproducible forward passes.
+
+    Added 2026-08-02 after two back-to-back smoke passes (identical model, concept, seed,
+    host) produced different dom_handoff AUROC at the full budget (0.9104 vs 0.8816) --
+    enough drift to fail the known-result gate's 1e-6 tolerance on its own, independent of
+    whether the harness matches M16. Root cause is presumed non-deterministic reduction
+    order in cuBLAS/SDPA kernels compounding through ~24-32 transformer layers; this
+    dataset's near-ceiling, lexically-tight scores (P3 §K: bag-of-words held-out AUC
+    0.999) make AUROC unusually sensitive to that noise. This does not guarantee matching
+    M16's *original* reference (computed on whatever host/torch version produced it), only
+    that repeat runs on this host now agree with each other -- worth checking empirically.
+    """
+    torch.use_deterministic_algorithms(True, warn_only=True)
+    torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cuda.matmul.allow_tf32 = False
+    torch.backends.cudnn.allow_tf32 = False
+    # Flash/mem-efficient SDPA kernels use non-deterministic reduction order; force the
+    # math (eager) backend so attention itself doesn't reintroduce the drift.
+    torch.backends.cuda.enable_flash_sdp(False)
+    torch.backends.cuda.enable_mem_efficient_sdp(False)
+    torch.backends.cuda.enable_math_sdp(True)
+    logger.info("determinism forced: use_deterministic_algorithms=True, TF32 off, "
+                "SDPA=math-only, CUBLAS_WORKSPACE_CONFIG=%s",
+                os.environ.get("CUBLAS_WORKSPACE_CONFIG"))
+
+
 def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(message)s")
+    _force_determinism(log)
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--model", action="append", dest="models",
                     help="HF model id; repeatable. Default: §8.1's 6-model roster.")
