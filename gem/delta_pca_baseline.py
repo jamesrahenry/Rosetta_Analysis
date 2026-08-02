@@ -460,10 +460,31 @@ def _provenance(models: list[str], eval_frac: float, seed: int) -> dict:
         except Exception:                                            # noqa: BLE001
             return None
     import rosetta_tools
+    rt_root = Path(rosetta_tools.__file__).resolve().parent
+    # The library vintage is the one thing this run CANNOT be allowed to omit. The
+    # 2026-08-02 run recorded `rosetta_tools_sha: null` because the runner pip-installs
+    # the package rather than checking it out, and without it a known-result-gate
+    # failure cannot be attributed: pre-6fed9e2 `load_concept_pairs` salts its sample
+    # with PYTHONHASHSEED and draws a DIFFERENT 250-pair subset every invocation, which
+    # is indistinguishable from a harness bug in the artifact. Fingerprint the installed
+    # source directly so a non-git install still states its vintage.
+    def _fingerprint(root: Path) -> dict:
+        try:
+            import hashlib
+            ds = (root / "dataset.py").read_text()
+            return {
+                "dataset_py_sha256": hashlib.sha256(ds.encode()).hexdigest()[:16],
+                # 6fed9e2 replaced the PYTHONHASHSEED-salted hash() with a stable sha256.
+                "has_stable_pair_seed": "hashlib.sha256(f\"{concept}|{split}\"" in ds,
+            }
+        except Exception as exc:                                     # noqa: BLE001
+            return {"error": str(exc)}
     return {
         "script": "gem/delta_pca_baseline.py",
         "analysis_repo_sha": _sha(Path(__file__).resolve().parent.parent),
-        "rosetta_tools_sha": _sha(Path(rosetta_tools.__file__).resolve().parent.parent),
+        "rosetta_tools_sha": _sha(rt_root.parent),
+        "rosetta_tools_path": str(rt_root),
+        "rosetta_tools_fingerprint": _fingerprint(rt_root),
         "rosetta_tools_version": getattr(rosetta_tools, "__version__", None),
         "roster_source": "explicit module list DEFAULT_MODELS (never a directory glob)",
         "models": list(models),
