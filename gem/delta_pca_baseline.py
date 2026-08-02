@@ -75,7 +75,14 @@ from rosetta_tools.gem import discover_concepts, find_extraction_dir
 from rosetta_tools.gpu_utils import (
     get_device, get_dtype, load_causal_lm, log_device_info, release_model,
 )
-from rosetta_tools.paths import ROSETTA_PAPER_N250, ROSETTA_RESULTS
+from rosetta_tools.paths import ROSETTA_DATA, ROSETTA_RESULTS
+
+# Not imported from rosetta_tools.paths: added there in commit 15fea87 (2026-05-15), two
+# days after the pyproject.toml-pinned v1.3.1 (2026-05-13) that reproduces the published
+# corpus. Inlined for the same reason _split_indices is copied rather than imported below
+# — a number that goes into a paper must not depend on which rosetta_tools version happens
+# to be on the host.
+ROSETTA_PAPER_N250 = ROSETTA_DATA / "paper_n250"
 
 log = logging.getLogger("delta_pca")
 
