@@ -61,6 +61,22 @@ ARCH_COLORS = {
 
 MISTRAL_FAMILIES = {"Mistral"}  # handled separately since not in FAMILY_MAP typically
 
+# The exact 28 base-model roster of Table 8 (base models only). Pinning it keeps
+# non-roster models the fuzzy family match would otherwise catch — Llama-3.1-8B
+# (P2's 29th model, ablation-only in this store), gpt_neo, instruct variants —
+# out of the cohort means. Mirrors table12_cohort_recompute.COHORTS.
+BASE_28 = {
+    "EleutherAI/pythia-70m", "EleutherAI/pythia-160m", "EleutherAI/pythia-410m",
+    "EleutherAI/pythia-1b", "EleutherAI/pythia-1.4b", "EleutherAI/pythia-2.8b",
+    "EleutherAI/pythia-6.9b", "EleutherAI/pythia-12b", "openai-community/gpt2",
+    "openai-community/gpt2-medium", "openai-community/gpt2-large",
+    "openai-community/gpt2-xl", "facebook/opt-125m", "facebook/opt-350m",
+    "facebook/opt-1.3b", "facebook/opt-2.7b", "facebook/opt-6.7b", "microsoft/phi-2",
+    "Qwen/Qwen2.5-0.5B", "Qwen/Qwen2.5-1.5B", "Qwen/Qwen2.5-3B", "Qwen/Qwen2.5-7B",
+    "Qwen/Qwen2.5-14B", "meta-llama/Llama-3.2-1B", "meta-llama/Llama-3.2-3B",
+    "mistralai/Mistral-7B-v0.3", "google/gemma-2-2b", "google/gemma-2-9b",
+}
+
 
 def family_of(model_id: str) -> str | None:
     """Return family string for a model_id, or None if unknown."""
@@ -95,21 +111,34 @@ def load_ablation(results_dir: Path) -> dict[str, list[float]]:
     """
     by_arch: dict[str, list[float]] = defaultdict(list)
     for f in results_dir.rglob("ablation_gem_*.json"):
+        # Only the top-level per-model dirs — skip the _p2_exfil_width1 /
+        # _defective_exfiltration / _gem_depth_matched subtrees rglob also finds,
+        # and skip suffixed superseded vintages. Matches table12_cohort_recompute.
+        if f.parent.parent != results_dir or "superseded" in f.name:
+            continue
         try:
             d = json.loads(f.read_text())
         except Exception:
             continue
         model_id = d.get("model_id", "")
-        if any(t in model_id for t in ["Instruct", "instruct", "-it", "-Instruct"]):
+        if model_id not in BASE_28:
             continue
         group = arch_group_of(model_id)
         if group is None:
             continue
         handoff = d.get("handoff", {})
-        sr = handoff.get("final_sep_reduction")
-        if sr is None:
-            continue
-        by_arch[group].append(float(sr))
+        # Use the UNCLIPPED mean reduction (1 - retained), matching Table 8: the
+        # stored `final_sep_reduction` is truncated at zero, which drops the 22/306
+        # MHA cells whose ablation *increases* separation and inflates the MHA mean
+        # to 0.658. The paper reports the unclipped 0.588 (Table 8 caption).
+        ret = handoff.get("final_retained_pct")
+        if ret is None:
+            sr = handoff.get("final_sep_reduction")
+            if sr is None:
+                continue
+            by_arch[group].append(float(sr))
+        else:
+            by_arch[group].append(1.0 - float(ret) / 100.0)
     return dict(by_arch)
 
 
@@ -124,7 +153,7 @@ def load_patching(results_dir: Path) -> dict[str, list[float]]:
         except Exception:
             continue
         model_id = d.get("model_id", "")
-        if any(t in model_id for t in ["Instruct", "instruct", "-it", "-Instruct"]):
+        if model_id not in BASE_28:
             continue
         group = arch_group_of(model_id)
         if group is None:
@@ -144,8 +173,18 @@ def load_patching(results_dir: Path) -> dict[str, list[float]]:
 
 
 def run(args) -> None:
-    ablation = load_ablation(ROSETTA_MODELS)
-    patching  = load_patching(ROSETTA_MODELS)
+    # ROSETTA_MODELS (~/rosetta_data/models) is the canonical local path, populated
+    # by rsync from the frozen paper_n250 snapshot per the restore guide. On hosts
+    # where only paper_n250 is present, read that directly so the corrected
+    # (post-exfiltration) cohort artifacts are used.
+    data_dir = ROSETTA_MODELS
+    if not any(data_dir.rglob("ablation_gem_*.json")) if data_dir.is_dir() else True:
+        alt = Path.home() / "rosetta_data" / "paper_n250"
+        if any(alt.rglob("ablation_gem_*.json")):
+            log.info("ROSETTA_MODELS empty; reading corrected artifacts from %s", alt)
+            data_dir = alt
+    ablation = load_ablation(data_dir)
+    patching  = load_patching(data_dir)
 
     groups = list(ARCH_GROUPS.keys())
 
