@@ -32,10 +32,14 @@ from rosetta_tools.paths import ROSETTA_MODELS
 from rosetta_tools.caz import find_caz_regions_scored, LayerMetrics
 
 # ── Paths ──────────────────────────────────────────────────────────────────────
-PAPER_FIG = Path.home() / "Source" / "Rosetta_Program" / "papers" / "caz-validation" / "figures"
+_CANDS = [Path.home() / "Source" / "Rosetta_Program" / "papers" / "caz-validation" / "figures",
+          Path.home() / "Games2" / "Eigan" / "Rosetta_Program" / "papers" / "caz-validation" / "figures"]
+PAPER_FIG = next((c for c in _CANDS if c.parent.is_dir()), _CANDS[0])
 PAPER_FIG.mkdir(parents=True, exist_ok=True)
 
-MODEL_DIR = ROSETTA_MODELS / "openai_community_gpt2_large"
+_MODELS = ROSETTA_MODELS if (ROSETTA_MODELS / "openai_community_gpt2_large").is_dir() \
+    else Path.home() / "rosetta_data" / "paper_n250"
+MODEL_DIR = _MODELS / "openai_community_gpt2_large"
 
 # ── Score category aliases (canonical definitions live in viz_style.py) ───────
 CAT_COLORS = CAZ_CAT_COLORS
@@ -256,22 +260,28 @@ def build_figure(depths, seps, vels, cohs, regions, n_layers):
             )
 
     # ── Legend (score categories) ─────────────────────────────────────────────
+    # All four canonical categories (CAZ_CAT_LABELS is shared with the framework
+    # paper; black_hole -> "Major CAZ" there already). The figure annotates a
+    # Strong and a Moderate CAZ, so Moderate must be present. Placed above the
+    # axes as a horizontal strip so it never overlaps the S(ℓ) tail or a callout.
+    CAT_RANGES = {"black_hole": "> 0.5", "strong": "0.2–0.5",
+                  "moderate": "0.05–0.2", "gentle": "< 0.05"}
     handles = [
-        mpatches.Patch(facecolor=CAT_FILL["black_hole"], edgecolor=CAT_COLORS["black_hole"],
-                       linewidth=1.0, label="Black hole  (score > 0.5)"),
-        mpatches.Patch(facecolor=CAT_FILL["strong"],     edgecolor=CAT_COLORS["strong"],
-                       linewidth=1.0, label="Strong  (0.2 – 0.5)"),
-        mpatches.Patch(facecolor=CAT_FILL["gentle"],     edgecolor=CAT_COLORS["gentle"],
-                       linewidth=1.0, label="Gentle  (< 0.05)"),
+        mpatches.Patch(facecolor=CAT_FILL[k], edgecolor=CAT_COLORS[k], linewidth=1.0,
+                       label=f"{CAT_LABELS[k]} ({CAT_RANGES[k]})")
+        for k in ("black_hole", "strong", "moderate", "gentle")
     ]
     ax_s.legend(
         handles=handles,
-        loc="lower right",
-        fontsize=7,
-        framealpha=0.88,
+        loc="upper center",
+        ncol=4,
+        fontsize=6.5,
+        framealpha=0.85,
         edgecolor="#CFD8DC",
-        handlelength=1.2,
+        columnspacing=1.1,
+        handlelength=1.1,
         handleheight=0.9,
+        borderpad=0.35,
     )
 
     # ── Title ─────────────────────────────────────────────────────────────────
