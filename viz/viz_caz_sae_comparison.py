@@ -93,7 +93,7 @@ def run(args):
     # ── Figure layout: 3×6 — 17 concepts + mean±1σ summary (18 panels) ─────────
     n_cols = 6
     n_rows = 3
-    fig = plt.figure(figsize=(22, 11))
+    fig = plt.figure(figsize=(13.5, 9))
     fig.patch.set_facecolor("white")
 
     gs = gridspec.GridSpec(
@@ -133,21 +133,21 @@ def run(args):
         concept_r_values.append(r)
 
         ax.set_title(CONCEPT_LABELS[concept], color=THEME["text"],
-                     fontsize=10, fontweight="bold", pad=4)
+                     fontsize=13, fontweight="bold", pad=4)
         ax.text(0.97, 0.06, f"r = {r:.3f}",
                 transform=ax.transAxes, ha="right", va="bottom",
-                color=THEME["text"], fontsize=9, alpha=0.9)
+                color=THEME["text"], fontsize=11, alpha=0.9)
 
         ax.set_xlim(0, len(L) - 1)
         ax.set_ylim(-0.05, 1.08)
-        ax.set_xlabel("Layer", color=THEME["dim"], fontsize=8)
+        ax.set_xlabel("Layer", color=THEME["dim"], fontsize=10.5)
         if col == 0:
-            ax.set_ylabel("Score (norm. to peak)", color=THEME["dim"], fontsize=8)
-        ax.tick_params(colors=THEME["dim"], labelsize=7)
+            ax.set_ylabel("Score (norm. to peak)", color=THEME["dim"], fontsize=10.5)
+        ax.tick_params(colors=THEME["dim"], labelsize=9.5)
         for spine in ax.spines.values():
             spine.set_edgecolor(THEME["spine"])
         ax.grid(True, color="#ECEFF1", linewidth=0.5)
-        ax.legend(fontsize=6.5, loc="upper left",
+        ax.legend(fontsize=9, loc="upper left",
                   facecolor="white", edgecolor=THEME["spine"],
                   labelcolor=THEME["text"], handlelength=1.2)
 
@@ -179,14 +179,14 @@ def run(args):
                      fontsize=10, fontweight="bold", pad=4)
     ax_sum.text(0.5, 0.1, f"mean r = {np.mean(concept_r_values):.3f}",
                 transform=ax_sum.transAxes, ha="center",
-                color=THEME["text"], fontsize=11, fontweight="bold")
-    ax_sum.legend(fontsize=8, loc="upper left",
+                color=THEME["text"], fontsize=13, fontweight="bold")
+    ax_sum.legend(fontsize=10.5, loc="upper left",
                   facecolor="white", edgecolor=THEME["spine"],
                   labelcolor=THEME["text"])
     ax_sum.set_xlim(0, all_caz.shape[1] - 1)
     ax_sum.set_ylim(-0.05, 1.08)
-    ax_sum.set_xlabel("Layer", color=THEME["dim"], fontsize=8)
-    ax_sum.tick_params(colors=THEME["dim"], labelsize=7)
+    ax_sum.set_xlabel("Layer", color=THEME["dim"], fontsize=10.5)
+    ax_sum.tick_params(colors=THEME["dim"], labelsize=9.5)
     for spine in ax_sum.spines.values():
         spine.set_edgecolor(THEME["spine"])
     ax_sum.grid(True, color="#ECEFF1", linewidth=0.5)
@@ -196,14 +196,14 @@ def run(args):
         0.5, 0.955,
         "CAZ Eigenvectors vs. Gemma Scope SAEs  |  Gemma-2-2b",
         ha="center", va="center", color=THEME["text"],
-        fontsize=15, fontweight="bold",
+        fontsize=18, fontweight="bold",
     )
     fig.text(
         0.5, 0.925,
         f"CAZ: 250 pairs/concept · 1 forward pass · no SAE download        "
         f"SAE: 26 × 302 MB checkpoints (7.8 GB) · mean Spearman r = {np.mean(concept_r_values):.3f}",
         ha="center", va="center", color=THEME["dim"],
-        fontsize=9.5,
+        fontsize=12,
     )
 
     out = PAPERS_DIR / "fig_sae_comparison.png"
