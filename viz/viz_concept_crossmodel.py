@@ -49,6 +49,15 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 RESULTS_ROOT = ROSETTA_RESULTS
+# On hosts where only the frozen paper_n250 snapshot is present, the per-model
+# cka_/caz_ files live in paper_n250/<slug>/ and the coasting roster in
+# paper_n250/_p3_refresh/coasting_analysis/ — resolve to those when the
+# canonical results tree is absent.
+PAPER_N250 = Path.home() / 'rosetta_data' / 'paper_n250'
+COASTING_ROOT = (PAPER_N250 / '_p3_refresh'
+                 if (PAPER_N250 / '_p3_refresh' / 'coasting_analysis' / 'per_model.json').exists()
+                 else RESULTS_ROOT)
+def _slug(mid): return mid.replace('/', '_').replace('-', '_')
 OUT_DIR      = Path("visualizations") / "crossmodel"
 
 CONCEPTS = [
@@ -65,6 +74,10 @@ CKA_CLR   = THEME["cka_line"]
 # ── Data loading ───────────────────────────────────────────────────────────────
 
 def find_run_dir(model_id: str) -> Path | None:
+    # paper_n250 slug dirs carry cka_/caz_ but no run_summary.json
+    slug_dir = PAPER_N250 / _slug(model_id)
+    if slug_dir.is_dir() and any(slug_dir.glob("cka_*.json")):
+        return slug_dir
     for d in sorted(RESULTS_ROOT.iterdir(), reverse=True):
         sf = d / "run_summary.json"
         if d.is_dir() and sf.exists():
@@ -99,7 +112,7 @@ def load_concept_for_model(model_id: str, concept: str) -> dict | None:
 
 
 def load_coasting_for_model(model_id: str, concept: str) -> list[dict]:
-    pm = RESULTS_ROOT / "coasting_analysis" / "per_model.json"
+    pm = COASTING_ROOT / "coasting_analysis" / "per_model.json"
     if not pm.exists():
         return []
     data = json.loads(pm.read_text())
@@ -110,7 +123,7 @@ def load_coasting_for_model(model_id: str, concept: str) -> list[dict]:
 
 
 def all_model_ids() -> list[str]:
-    pm = RESULTS_ROOT / "coasting_analysis" / "per_model.json"
+    pm = COASTING_ROOT / "coasting_analysis" / "per_model.json"
     if not pm.exists():
         return []
     return [m["model_id"] for m in json.loads(pm.read_text())]

@@ -23,7 +23,9 @@ sys.path.insert(0, str(Path(__file__).parent))
 from viz_style import THEME, concept_color, layer_ticks
 from rosetta_tools.paths import ROSETTA_RESULTS, ROSETTA_MODELS
 
-PAPERS_DIR = Path.home() / "Source" / "Rosetta_Program" / "papers" / "caz-validation" / "figures"
+_C=[Path.home()/"Source"/"Rosetta_Program"/"papers"/"caz-validation"/"figures",
+    Path.home()/"Games2"/"Eigan"/"Rosetta_Program"/"papers"/"caz-validation"/"figures"]
+PAPERS_DIR = next((c for c in _C if c.parent.is_dir()), _C[0])
 
 CONCEPTS = [
     "credibility", "certainty", "sentiment", "moral_valence",
@@ -61,6 +63,16 @@ def load_curves(xval_dir: Path) -> dict:
     authoritative = xval_dir / "caz_vs_sae_curves.json"
     if authoritative.exists():
         return json.loads(authoritative.read_text())["results"]
+
+    # Per-concept subdirs (paper_n250/_p3_refresh/gemma_scope_xval_n250/<concept>/
+    # caz_vs_sae_curves.json), each carrying one concept under "results".
+    merged = {}
+    for sub in sorted(xval_dir.iterdir()) if xval_dir.is_dir() else []:
+        f = sub / "caz_vs_sae_curves.json"
+        if sub.is_dir() and f.exists():
+            merged.update(json.loads(f.read_text()).get("results", {}))
+    if merged:
+        return merged
 
     # Proxy path: SAE scores from layer_agreement.json, CAZ from extraction raw_distance
     la = json.loads((xval_dir / "layer_agreement.json").read_text())
