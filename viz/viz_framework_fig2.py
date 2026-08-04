@@ -1,15 +1,20 @@
 #!/usr/bin/env python3
 """Generate Figure 2 for the CAZ Framework paper.
 
-Scored CAZ profile for negation in OPT-2.7B (32 layers).
-Two-panel: S(l) curve with CAZ regions + velocity v(l) with zero-crossings.
+Scored CAZ profile for causation in OPT-2.7B (32 layers) — the concept the
+published figure shows. Two-panel: S(l) curve with CAZ regions + velocity
+v(l) with zero-crossings.
 
-Data source: rosetta_data/models/facebook_opt_2.7b/caz_negation.json
-Extraction:  rosetta_analysis/extraction/extract.py --model facebook/opt-2.7b
+Conventions (round-2 item 6, tf264de0): depth = l/N to match the paper's
+caption convention (not l/(N-1)); region spans padded +-0.5 layer so scored
+segments render as the tiling section 4.3 describes; category labels use the
+Major-CAZ vocabulary and the '< 0.05' gentle band (James 2026-08-03 ruling,
+matching P3 and the frozen text).
 
-Output: fig2_caz_profile.pdf + fig2_caz_profile.png
+Data source: rosetta_data/paper_n250/facebook_opt_2.7b/caz_causation.json
+Output: caz_profile_proof_of_concept.pdf/.png into the caz-framework checkout.
 
-Written: 2026-05-06 20:00 UTC
+Written: 2026-05-06 20:00 UTC - Updated: 2026-08-04 (regeneration spec)
 """
 
 from __future__ import annotations
@@ -34,10 +39,25 @@ except ImportError:
     from rosetta_tools.rosetta_tools.caz import find_caz_regions_scored, LayerMetrics
     ROSETTA_DATA_ROOT = Path.home() / "rosetta_data"
 
-OUT_DIR = Path.home() / "Source" / "Rosetta_Program" / "papers" / "caz-framework" / "figures"
+ROSETTA_PAPER_N250 = ROSETTA_DATA_ROOT / "paper_n250"
+
+
+def _figures_dir() -> Path:
+    """First existing caz-framework repo checkout, across dev-box layouts."""
+    for base in (
+        Path.home() / "Source" / "Rosetta_Program",
+        Path.home() / "Games2" / "Eigan" / "Rosetta_Program",
+        Path.home() / "Eigan" / "Rosetta_Program",
+    ):
+        if (base / "papers" / "caz-framework").exists():
+            return base / "papers" / "caz-framework" / "figures"
+    return Path.home() / "Source" / "Rosetta_Program" / "papers" / "caz-framework" / "figures"
+
+
+OUT_DIR = _figures_dir()
 
 MODEL_ID = "facebook/opt-2.7b"
-CONCEPT  = "negation"
+CONCEPT  = "causation"
 
 CAT_COLOR = {
     "black_hole": "#C44E52",
@@ -54,7 +74,7 @@ CAT_FILL = {
     "embedding":  "#F9DEC9",
 }
 CAT_LABEL = {
-    "black_hole": "Black hole  (score > 0.5)",
+    "black_hole": "Major CAZ  (score > 0.5)",
     "strong":     "Strong  (0.2 – 0.5)",
     "moderate":   "Moderate  (0.05 – 0.2)",
     "gentle":     "Gentle  (< 0.05)",
@@ -79,12 +99,20 @@ def model_slug(model_id: str) -> str:
 
 
 def main():
+    import argparse
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--out", type=Path, default=OUT_DIR,
+                    help="output directory (default: first existing caz-framework checkout)")
+    args = ap.parse_args()
+    out_dir = args.out
+    out_dir.mkdir(parents=True, exist_ok=True)
+
     slug = model_slug(MODEL_ID)
-    path = ROSETTA_DATA_ROOT / "models" / slug / f"caz_{CONCEPT}.json"
+    path = ROSETTA_PAPER_N250 / slug / f"caz_{CONCEPT}.json"
     if not path.exists():
         raise FileNotFoundError(
             f"Missing: {path}\n"
-            f"Run: python rosetta_analysis/extraction/extract.py --model {MODEL_ID}"
+            f"Restore: hf download james-ra-henry/Rosetta-Activations --revision paper-n250 --include 'paper_n250/*'"
         )
 
     d       = json.loads(path.read_text())
@@ -100,7 +128,7 @@ def main():
         for m in metrics_raw
     ]
 
-    depths = np.array([m.layer / (n - 1) * 100 for m in metrics])
+    depths = np.array([m.layer / n * 100 for m in metrics])
     seps   = np.array([m.separation for m in metrics])
     cohs   = np.array([m.coherence  for m in metrics])
     vels   = np.array([m.velocity   for m in metrics])
@@ -120,8 +148,8 @@ def main():
     seen_cats: set[str] = set()
     for r in regions:
         cat = score_cat(r)
-        x0  = r.start / (n - 1) * 100
-        x1  = r.end   / (n - 1) * 100
+        x0  = (r.start - 0.5) / n * 100
+        x1  = (r.end   + 0.5) / n * 100
         ax_s.axvspan(x0, x1, color=CAT_FILL[cat], alpha=0.70, zorder=0, linewidth=0)
         ax_v.axvspan(x0, x1, color=CAT_FILL[cat], alpha=0.45, zorder=0, linewidth=0)
         seen_cats.add(cat)
@@ -143,14 +171,15 @@ def main():
     # ── Peak markers ──────────────────────────────────────────────────────────
     for r in regions:
         cat = score_cat(r)
-        px  = r.peak / (n - 1) * 100
+        px  = r.peak / n * 100
         py  = seps[r.peak]
         ax_s.plot(px, py, "o",
-                  color=CAT_COLOR[cat], markersize=9, zorder=5,
+                  color=CAT_COLOR[cat], markersize=8, zorder=5,
                   markeredgecolor="white", markeredgewidth=1.5)
-        ax_s.text(px, py, f"{r.caz_score:.2f}",
-                  ha="center", va="center", fontsize=5.5,
-                  color="white", fontweight="bold", zorder=6)
+        ax_s.annotate(f"L{r.peak}  ·  {r.caz_score:.2f}",
+                      xy=(px, py), xytext=(0, 9), textcoords="offset points",
+                      ha="center", va="bottom", fontsize=8,
+                      color=CAT_COLOR[cat], fontweight="bold", zorder=6)
 
     # ── Velocity panel ────────────────────────────────────────────────────────
     ax_v.axhline(0, color="#546E7A", linewidth=0.8, linestyle="-", alpha=0.6)
@@ -162,7 +191,7 @@ def main():
 
     for r in regions:
         cat = score_cat(r)
-        px  = r.peak / (n - 1) * 100
+        px  = r.peak / n * 100
         ax_v.axvline(px, color=CAT_COLOR[cat], linewidth=1.0,
                      linestyle="--", alpha=0.7, zorder=4)
 
@@ -196,8 +225,8 @@ def main():
     # ── Title ─────────────────────────────────────────────────────────────────
     n_caz = len(regions)
     ax_s.set_title(
-        f"Scored CAZ profile  ·  Negation / OPT-2.7B  ({n} layers)  ·  {n_caz} CAZes detected\n"
-        r"Score inside marker  ·  shading = category  ·  $v(\ell)$ panel shows boundary zero-crossings",
+        f"Scored CAZ profile  ·  Causation / OPT-2.7B  ({n} layers)  ·  {n_caz} CAZes detected\n"
+        r"Marker label = peak layer · score  ·  shading = category  ·  $v(\ell)$ panel shows boundary zero-crossings",
         fontsize=9, loc="left", pad=6,
     )
 
@@ -214,12 +243,12 @@ def main():
     fig.tight_layout()
 
     for fmt in ("pdf", "png"):
-        out = OUT_DIR / f"caz_profile_proof_of_concept.{fmt}"
+        out = out_dir / f"caz_profile_proof_of_concept.{fmt}"
         fig.savefig(out, dpi=150, bbox_inches="tight")
         print(f"Saved: {out}")
 
     plt.close(fig)
-    print(f"\nOPT-2.7b | negation | {n_caz} CAZes:")
+    print(f"\nOPT-2.7b | {CONCEPT} | {n_caz} CAZes:")
     for r in regions:
         print(f"  L{r.peak:2d} ({r.depth_pct:.0f}%)  score={r.caz_score:.3f}  cat={score_cat(r)}")
 
