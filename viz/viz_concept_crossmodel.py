@@ -147,7 +147,7 @@ def build_figure(concept: str, model_ids: list[str]) -> object | None:
 
     fig, axes = plt.subplots(
         n_rows, n_cols,
-        figsize=(16, 2.8 * n_rows),
+        figsize=(11, 2.7 * n_rows),
         squeeze=False,
     )
     fig.patch.set_facecolor("white")
@@ -188,8 +188,8 @@ def build_figure(concept: str, model_ids: list[str]) -> object | None:
             spine.set_edgecolor(SPINE_CLR)
             spine.set_linewidth(0.7)
 
-        ax.tick_params(colors=DIM_CLR, labelsize=6.5, length=2, width=0.6)
-        ax_cka.tick_params(colors=CKA_CLR, labelsize=6, length=2, width=0.6)
+        ax.tick_params(colors=DIM_CLR, labelsize=9.5, length=2, width=0.6)
+        ax_cka.tick_params(colors=CKA_CLR, labelsize=9, length=2, width=0.6)
         ax.grid(True, color=GRID_CLR, linewidth=0.5, alpha=1.0, zorder=0)
 
         # Fisher bands
@@ -234,7 +234,7 @@ def build_figure(concept: str, model_ids: list[str]) -> object | None:
         ax.set_xticks([0, mid_layer, last_layer])
         ax.set_xticklabels(
             [f"L0", f"L{mid_layer}\n(50%)", f"L{last_layer}"],
-            color=DIM_CLR, fontsize=6.5,
+            color=DIM_CLR, fontsize=9.5,
         )
 
         # No y-label on interior panels — too cluttered
@@ -247,13 +247,13 @@ def build_figure(concept: str, model_ids: list[str]) -> object | None:
         marker  = "" if has_caz else "  ✗"
         ax.set_title(
             f"{label}{marker}",
-            color=fam_color, fontsize=8.5, fontweight="bold",
+            color=fam_color, fontsize=11.5, fontweight="bold",
             pad=3, loc="center",
         )
 
         # Faint family tag in corner
         ax.text(0.98, 0.95, family, transform=ax.transAxes,
-                ha="right", va="top", fontsize=6, color=fam_color, alpha=0.6)
+                ha="right", va="top", fontsize=9, color=fam_color, alpha=0.6)
 
     # Hide unused panels
     for idx in range(n_models, n_rows * n_cols):
@@ -295,7 +295,7 @@ def build_figure(concept: str, model_ids: list[str]) -> object | None:
         loc="upper center",
         bbox_to_anchor=(0.50, 0.995),
         ncol=5,
-        fontsize=7.5,
+        fontsize=11,
         facecolor="white",
         edgecolor=SPINE_CLR,
         labelcolor="#111111",
@@ -310,7 +310,7 @@ def build_figure(concept: str, model_ids: list[str]) -> object | None:
 
     fig.suptitle(
         f"{concept_title}  ·  {ctype}  ·  CAZ present in {n_with_caz}/{n_total} models",
-        color="#111111", fontsize=13, fontweight="bold", y=1.00, va="bottom",
+        color="#111111", fontsize=16, fontweight="bold", y=1.00, va="bottom",
     )
 
     return fig
