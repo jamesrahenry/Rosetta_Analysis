@@ -39,10 +39,20 @@ from rosetta_tools.caz import find_caz_regions_scored, LayerMetrics
 
 
 RESULTS_DIR = Path(__file__).parent.parent / "results"
-CONCEPTS = [
+# Original 7-concept scope (§5.4's Part (b) unembedding-clustering analysis stays
+# here — CONCEPT_TOKENS below has no hand-curated token lists for the 10 later
+# concepts, and extending it is a separate task). Part (a) now runs at the full
+# 17, matching the paper's C=17/N=250 scope (2026-08-12: the original C=7-only
+# scope for Part (a) was a stale carryover, not a deliberate limitation).
+CONCEPTS_C7 = [
     "credibility", "negation", "causation", "temporal_order",
     "sentiment", "certainty", "moral_valence",
 ]
+CONCEPTS_C17 = CONCEPTS_C7 + [
+    "specificity", "plurality", "formality", "agency", "sarcasm",
+    "threat_severity", "authorization", "urgency", "deception", "exfiltration",
+]
+CONCEPTS = CONCEPTS_C17
 
 # Concept-relevant tokens for unembedding analysis.
 # These are high-frequency tokens associated with each concept,
@@ -95,16 +105,31 @@ class PostChainDecay:
     n_post_chain_layers: int
 
 
-def load_extraction_results():
-    """Find all extraction result directories."""
-    if not RESULTS_DIR.exists():
-        print(f"Results directory not found: {RESULTS_DIR}")
+def load_extraction_results(data_dir: Path = None, dedup: bool = True):
+    """Find all extraction result directories.
+
+    data_dir defaults to RESULTS_DIR (the GPU-host raw-dump convention, dirs named
+    tag_org_model_date_time). Pass the dev-box ROSETTA_MODELS-style path (dirs
+    named org_model, e.g. paper_n250/) via --data-dir when running here instead
+    -- that convention has one directory per model already, so pass dedup=False
+    (main() does this automatically whenever --data-dir is given): the
+    tag_org_model_date parsing below assumes 4+ underscore-separated parts and
+    silently collapses plain org_model names (e.g. all 5 Qwen dirs share the
+    same "Qwen_" tag prefix) down to one survivor per tag.
+    """
+    data_dir = data_dir or RESULTS_DIR
+    if not data_dir.exists():
+        print(f"Results directory not found: {data_dir}")
         sys.exit(1)
 
     result_dirs = sorted([
-        d for d in RESULTS_DIR.iterdir()
+        d for d in data_dir.iterdir()
         if d.is_dir() and any((d / f"caz_{c}.json").exists() for c in CONCEPTS)
+        and "instruct" not in d.name.lower() and not d.name.startswith("custom_")
     ])
+
+    if not dedup:
+        return result_dirs
 
     # Deduplicate: keep latest per model (tag_model_date format)
     model_dirs = {}
@@ -116,10 +141,6 @@ def load_extraction_results():
         date_str = "_".join(parts[-2:])  # last two parts are date_time
         tag = parts[0]
         model_key = "_".join(parts[1:-2])
-
-        # Skip instruct models for this analysis
-        if "instruct" in d.name.lower() or d.name.startswith("custom_"):
-            continue
 
         full_key = f"{tag}_{model_key}"
         if full_key not in model_dirs or d.name > model_dirs[full_key].name:
@@ -280,23 +301,29 @@ def run_part_a(result_dirs):
 
     # --- Does concept type predict decay after controlling for remaining depth? ---
     print("--- Partial Correlation: Concept Type vs Decay (controlling for depth) ---")
-    # Encode concept type as abstraction level
+    # Encode concept type as abstraction level. Only the original 7 concepts are
+    # categorised; this exploratory sub-analysis stays C=7-scoped (not part of
+    # the paper's reported results) rather than guessing abstraction levels for
+    # the other 10.
     abstraction = {"negation": 1, "causation": 2, "temporal_order": 2,
                    "sentiment": 3, "moral_valence": 3, "certainty": 4, "credibility": 4}
-    abs_levels = [abstraction[d.concept] for d in all_decays]
+    abs_decays = [d for d in all_decays if d.concept in abstraction]
+    abs_levels = [abstraction[d.concept] for d in abs_decays]
+    decay_ratios_abs = [d.decay_ratio for d in abs_decays]
+    remaining_fracs_abs = [d.remaining_depth_frac for d in abs_decays]
 
     # Partial correlation: abstraction vs decay_ratio, controlling for remaining_depth
     from numpy.linalg import lstsq
-    X = np.column_stack([remaining_fracs, abs_levels])
+    X = np.column_stack([remaining_fracs_abs, abs_levels])
     # Residualize both on remaining_depth
     r_abs = np.array(abs_levels) - np.mean(abs_levels)
-    r_decay = np.array(decay_ratios) - np.mean(decay_ratios)
+    r_decay = np.array(decay_ratios_abs) - np.mean(decay_ratios_abs)
     # Simple partial: regress both on remaining_depth, correlate residuals
-    rf_arr = np.array(remaining_fracs)
+    rf_arr = np.array(remaining_fracs_abs)
     abs_resid = np.array(abs_levels) - (
         np.polyval(np.polyfit(rf_arr, abs_levels, 1), rf_arr))
-    decay_resid = np.array(decay_ratios) - (
-        np.polyval(np.polyfit(rf_arr, decay_ratios, 1), rf_arr))
+    decay_resid = np.array(decay_ratios_abs) - (
+        np.polyval(np.polyfit(rf_arr, decay_ratios_abs, 1), rf_arr))
     r_partial, p_partial = stats.pearsonr(abs_resid, decay_resid)
     print(f"  Partial r (abstraction vs decay | remaining_depth): {r_partial:.3f}, p={p_partial:.4f}")
     print()
@@ -424,7 +451,7 @@ def run_part_b(result_dirs):
         # vocab_size × hidden_dim
         print(f"  Unembedding shape: {unembed.shape}")
 
-        for concept in CONCEPTS:
+        for concept in CONCEPTS_C7:  # CONCEPT_TOKENS only covers the original 7
             tokens = CONCEPT_TOKENS[concept]
             token_ids = []
             for t in tokens:
@@ -503,7 +530,7 @@ def run_part_b(result_dirs):
     # Per-concept
     print(f"\n{'Concept':<18} {'Mean Clustering':>16} {'Mean Decay':>12} {'N':>4}")
     print("-" * 54)
-    for concept in CONCEPTS:
+    for concept in CONCEPTS_C7:
         cm = [m for m in merged if m["concept"] == concept]
         if cm:
             print(f"{concept:<18} {np.mean([m['unembed_clustering'] for m in cm]):>16.3f} "
@@ -525,9 +552,20 @@ def main():
                         help="Which part to run (a=depth correlation, b=unembedding, both)")
     parser.add_argument("--families", nargs="*",
                         help="Only analyze these families (e.g., pythia gpt2)")
+    parser.add_argument("--data-dir", type=Path, default=None,
+                        help="Override RESULTS_DIR, e.g. ~/rosetta_data/paper_n250 "
+                             "on the dev box. Disables the tag_org_model_date dedup "
+                             "(that directory convention has one dir per model already).")
+    parser.add_argument("--exclude", nargs="*", default=[],
+                        help="Directory-name substrings to exclude, e.g. a known "
+                             "contaminant or an extended-corpus-only model not in "
+                             "the paper's base roster (case-insensitive).")
     args = parser.parse_args()
 
-    result_dirs = load_extraction_results()
+    result_dirs = load_extraction_results(data_dir=args.data_dir, dedup=args.data_dir is None)
+    if args.exclude:
+        result_dirs = [d for d in result_dirs
+                       if not any(x.lower() in d.name.lower() for x in args.exclude)]
     if args.families:
         result_dirs = [d for d in result_dirs
                        if any(f in d.name.lower() for f in args.families)]
