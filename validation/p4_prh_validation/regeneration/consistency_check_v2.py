@@ -118,10 +118,14 @@ def canonical():
     v["eigengap H2: Gemma-2-9b-it participation ratio"] = (63.2, "63.2")
     v["eigengap H2: Gemma-2-9b participation ratio"] = (46.4, "46.4")
     v["eigengap H2: cluster flatness vs cL/same rho"] = (-0.77, "-0.77")
-    v["eigengap surprise: subspace overlap vs chance (7 clusters, ~3dp)"] = (
-        "A0.0220/0.0221 G0.0164/0.0166 B0.0082/0.0083 H0.0067/0.0066 D0.0043/0.0047 C0.0041/0.0042 E0.0034/0.0033",
-        None,
-    )
+    # each cluster's pair (observed, chance) checked individually — the prose may
+    # legitimately present these as a table rather than one inline string.
+    surprise = {"A": (0.0220, 0.0221), "G": (0.0164, 0.0166), "B": (0.0082, 0.0083),
+                "H": (0.0067, 0.0066), "D": (0.0043, 0.0047), "C": (0.0041, 0.0042),
+                "E": (0.0034, 0.0033)}
+    for L, (obs, chance) in surprise.items():
+        v[f"eigengap surprise: subspace overlap {L} (observed)"] = (obs, None)
+        v[f"eigengap surprise: subspace overlap {L} (chance)"] = (chance, None)
     v["eigengap H4: n-sweep v2 exponent"] = (0.26, "0.26")
 
     return v
@@ -137,7 +141,12 @@ DRIFT = [
     (r"4\.9 null-SDs?",                 "floor-referenced margin, not null-SD", 0),
     (r"~?130 SE",                       "floor-referenced margin",              0),
     (r"4\.5\s?[×x]\s?SNR",              "floor-referenced margin",              0),
-    (r"against a near-zero (pre-rotation )?baseline", "against the spectrum-matched floor (0.32-0.53)", 0),
+    # Allowance 2, not 0: the outline's own framing notes (§4) sanction recounting
+    # the naive pre-rotation-baseline reading TWICE as the paper's own motivating
+    # device (Introduction + top of §3) before correcting it in the same breath —
+    # this is deliberate narrative structure, not drift. A third occurrence would
+    # suggest the naive framing leaking somewhere it was corrected everywhere else.
+    (r"against a near-zero (pre-rotation )?baseline", "against the spectrum-matched floor (0.32-0.53), except x2 as the deliberately-recounted naive reading", 2),
     (r"[Cc]onfirms?\s+(the\s+)?PRH",    "consistent with, does not adjudicate the PRH", 0),
     (r"[Ee]vidence for the Platonic Representation Hypothesis", "the question the measurement bears on", 0),
     # the retired 0.209 universality-ratio-as-concept-specificity claim (old §3.3)
