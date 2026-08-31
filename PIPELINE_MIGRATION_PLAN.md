@@ -4,13 +4,14 @@
 *Updated: 2026-07-22 06:19 UTC — corrected the version-reconciliation section to
 match actual repo state (local/remote have diverged; the earlier "local behind at
 1.3.1" description was wrong).*
+*Updated: 2026-08-31 — EXECUTED. `extract_layer_wise_metrics()` and
+`build_caz_record()` moved to `rosetta_tools.extraction`, tagged `v2.0.0`, and
+this repo re-pinned to it (`9412ca5`-lineage → `v2.0.0`). See "Status" below.*
 
-**Follow-up, do not execute yet.** Scheduled for the pre-publication coordinated
-version bump (P3/P4 publish + P1/P2 republish). Scopes moving the CAZ/GEM
-*pipeline* logic out of `Rosetta_Analysis/extraction/extract.py` and into
-`rosetta_tools`, per the scope rule: **rosetta_tools = reusable CAZ/GEM
-pipeline; Rosetta_Analysis = paper-writing support** (rosters, regeneration,
-HF upload, manuscript glue).
+Scopes moving the CAZ/GEM *pipeline* logic out of
+`Rosetta_Analysis/extraction/extract.py` and into `rosetta_tools`, per the
+scope rule: **rosetta_tools = reusable CAZ/GEM pipeline; Rosetta_Analysis =
+paper-writing support** (rosters, regeneration, HF upload, manuscript glue).
 
 ## Why
 
@@ -109,5 +110,21 @@ wrong.** The true state of `rosetta_tools`:
 
 1. ✅ Retrospective QA sweep — done (`qa_sweep_out/`, `cross_model_consistency.json`).
 2. ✅ **Publish** — papers on v1.3.1; RA pin fixed + tagged. *(Was step 4; promoted.)*
-3. ⏳ Execute this migration + version bump (2.0.0). *Post-publication.*
+3. ✅ **Migration + version bump (2.0.0)** — done 2026-08-31. `extract_layer_wise_metrics()`
+   and `build_caz_record()` moved to `rosetta_tools.extraction` (tests added,
+   full suite green modulo the pre-existing `test_models.py` collection error).
+   `rosetta_tools` tagged `v2.0.0` and pushed; this repo's `pyproject.toml` pin
+   updated `@v1.3.1` → `@v2.0.0`, `uv.lock` refreshed. Reproducing the exact
+   P1-P4 citation still requires pinning back to `v1.3.1`.
 4. ⏳ Code cleanup + documentation pass (separate follow-up).
+5. ⏳ Not yet built: the cross-model consistency checker (the corpus-level pass
+   that catches a clean systematic label inversion — see "What MOVES" above).
+   Belongs in `rosetta_tools` when it lands, but building it was out of scope
+   for this migration.
+
+## Status (2026-08-31)
+
+Migration executed. Not done in the same pass: re-pinning CIA / omnibus
+notebooks (no local clone of CIA was found on this machine to check), and
+re-minting the Zenodo DOI (only relevant if/when something *cites* v2.0.0 —
+the existing DOI at v1.3.1 remains correct for the published papers).
