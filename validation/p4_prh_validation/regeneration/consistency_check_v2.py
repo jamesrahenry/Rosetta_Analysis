@@ -71,6 +71,26 @@ def canonical():
     v["oob floor mean"] = (round(float(np.mean(oob_vals)), 4), "0.000")
 
     # --- §4: cross-concept transport, cL/same (PHASE_A §4.5/§4.7) ---
+    # NOTE on E specifically (added 2026-09-02, claude:p4-preprintv2-review, after a
+    # review-round-1 fix that first missed this): ccscr_E/crossconcept_scramble.json's
+    # top-level cross_true_L/same_true is the POOLED aggregate over all 64 cells,
+    # including the 30 cells involving Qwen2.5-32B's known extraction-vintage
+    # calibration defect (preprint_v2.md §4.6's natural experiment). Per the reframe
+    # outline's decision 2, those pairs never enter a primary grand mean -- so as of
+    # this date, preprint_v2.md's Table 6 reports the CLEAN 34-cell subset for E
+    # (filter d["rows"] to pairs where neither `s` nor `t` contains "32B", then
+    # recompute cross_true_L/same_true the same way `_write()` in
+    # crossconcept_scramble.py aggregates) -- cL/same 0.67, not the 0.45 this script
+    # computes below. This entry (`v["cL/same E"]`) is intentionally left at the
+    # pooled value: it's the natural-experiment comparison figure (what Table 6 would
+    # read if the defect weren't excluded), which §4.6 states explicitly, not the
+    # value Table 6's own E row shows. It currently passes only because `want=None`
+    # falls back to a bare presence check and 0.45 legitimately appears in that §4.6
+    # discussion -- if that sentence is ever edited away, this check will keep
+    # passing on a number the paper no longer states as a headline value, silently.
+    # If this script is ever extended to validate Table 6's row values directly
+    # (rather than just presence-checking that some string appears), E needs the
+    # clean-subset recompute above, not this pooled one.
     cl_same = {}
     for L, path in CCSCR.items():
         d = json.load(open(hf(path)))
