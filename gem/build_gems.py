@@ -41,13 +41,50 @@ from rosetta_tools.gem import (
 # Core builder
 # ---------------------------------------------------------------------------
 
+def _load_pos_neg_by_layer(extraction_dir: Path, concept: str, n_pairs: int) -> tuple[dict, dict] | None:
+    """Load calibration_alllayer_{concept}.npy (raw per-example activations,
+    saved by extraction but never previously read by the GEM-building step)
+    and split it into h_pos_by_layer / h_neg_by_layer dicts, per the layout
+    documented at extraction time: shape [n_layers, n_pos+n_neg, hidden_dim],
+    rows 0..n_pairs-1 = positive, rest = negative. Returns None if the file
+    isn't present (e.g. not saved for this model/concept) rather than
+    raising -- callers should treat that as "Phase 2 unavailable here."
+    """
+    import numpy as np
+
+    path = extraction_dir / f"calibration_alllayer_{concept}.npy"
+    if not path.exists():
+        return None
+    arr = np.load(path, mmap_mode="r")
+    n_layers = arr.shape[0]
+    h_pos_by_layer = {l: np.array(arr[l, :n_pairs, :]) for l in range(n_layers)}
+    h_neg_by_layer = {l: np.array(arr[l, n_pairs:, :]) for l in range(n_layers)}
+    return h_pos_by_layer, h_neg_by_layer
+
+
 def build_model_gems(
     model_id: str,
     concepts: list[str] | None = None,
     k: int = 1,
     force: bool = False,
+    compute_settled_subspace: bool = False,
+    settled_subspace_kwargs: dict | None = None,
 ) -> dict:
     """Build GEMs for one model across all concepts.
+
+    k > 1 or compute_settled_subspace=True both require raw per-example
+    activations (calibration_alllayer_{concept}.npy, saved at extraction
+    time but unused by this script before 2026-09-25). If that file is
+    missing for a given concept, Phase 2 / settled-subspace computation is
+    skipped for that concept only (falls back to k=1, logged as a warning)
+    rather than failing the whole run -- most of the corpus may not have
+    this file saved, and that shouldn't block building the k=1 GEMs that
+    only need caz_*.json.
+
+    compute_settled_subspace is expensive (INLP with permutation-test
+    fallback; see attach_settled_subspace's docstring for measured
+    runtimes) -- do not enable across a full --all run without first
+    estimating cost on a couple of models.
 
     Returns dict of {concept: diagnostics_dict}.
     """
@@ -99,13 +136,36 @@ def build_model_gems(
         if mm_path.exists():
             multimodal_data = json.loads(mm_path.read_text())
 
+        # k>1 (Phase 2) and/or compute_settled_subspace both need raw
+        # per-example activations, which caz_*.json doesn't have.
+        h_pos_by_layer = h_neg_by_layer = None
+        this_k = k
+        this_compute_settled_subspace = compute_settled_subspace
+        if k > 1 or compute_settled_subspace:
+            n_pairs = caz_data.get("n_pairs", 0)
+            loaded = _load_pos_neg_by_layer(extraction_dir, concept, n_pairs) if n_pairs else None
+            if loaded is None:
+                log.warning(
+                    "  %s: calibration_alllayer_%s.npy not found — falling back to k=1, "
+                    "no settled_subspace (raw activations required for Phase 2)",
+                    concept, concept,
+                )
+                this_k = 1
+                this_compute_settled_subspace = False
+            else:
+                h_pos_by_layer, h_neg_by_layer = loaded
+
         try:
             # Build the GEM
             gem = build_concept_gem(
                 caz_data,
                 multimodal_data=multimodal_data,
                 attention_paradigm=paradigm,
-                k=k,
+                k=this_k,
+                h_pos_by_layer=h_pos_by_layer,
+                h_neg_by_layer=h_neg_by_layer,
+                compute_settled_subspace=this_compute_settled_subspace,
+                settled_subspace_kwargs=settled_subspace_kwargs,
             )
         except (ValueError, KeyError, IndexError) as exc:
             log.error("  %s: FAILED — %s", concept, exc)
@@ -225,6 +285,13 @@ def main():
                         help="Phase 1 (k=1, dom_vector) or Phase 2 (k>1, deep dive)")
     parser.add_argument("--k", type=int, default=1,
                         help="Number of eigenvector threads to track (Phase 2)")
+    parser.add_argument("--settled-subspace", action="store_true",
+                        help="Also compute a multi-direction SettledSubspace at each node's "
+                             "handoff layer via INLP (2026-09-25). Requires "
+                             "calibration_alllayer_{concept}.npy; falls back to skipping per "
+                             "concept if missing. EXPENSIVE (permutation-test fallback can take "
+                             "30-90+ min per layer on a small model) -- do not enable across "
+                             "--all without first estimating cost on a couple of models.")
     parser.add_argument("--force", action="store_true",
                         help="Rebuild even if GEM files are up-to-date")
     parser.add_argument("--skip-model", action="append", default=[],
@@ -252,6 +319,7 @@ def main():
     for model_id in models:
         results = build_model_gems(
             model_id, concepts, k=args.k, force=args.force,
+            compute_settled_subspace=args.settled_subspace,
         )
         if results is None:
             continue  # no extraction dir — already logged as error
