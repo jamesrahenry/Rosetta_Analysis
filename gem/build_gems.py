@@ -1,17 +1,29 @@
 """
 build_gems.py — Batch Geometric Evolution Map (GEM) builder for all models × concepts.
 
-No GPU required.  Reads existing caz_*.json and ablation_multimodal_*.json
-files to construct ConceptGEM objects, then writes gem_*.json files
-alongside the existing extraction data.
+Reads existing caz_*.json and ablation_multimodal_*.json files to construct
+ConceptGEM objects, then writes gem_*.json files alongside the existing
+extraction data.
+
+Schema v2 (2026-10-15) is ON by default: every GEM also gets a LayerProfile
+(per-layer records at ALL layers, Fisher + projected separation with
+permutation nulls, attention/MLP attribution per layer, post-final-norm
+stream) and a gem_<concept>.sidecar.npz. The attention/MLP split needs a
+forward pass, so by default this script LOADS THE MODEL (GPU if available)
+and re-runs the same concept pairs the caz_*.json was built from. Switches:
+
+    --legacy               pre-v2 output: caz_*.json only, no model, no GPU
+    --no-sublayer-capture  stream-only profile from calibration_alllayer_*.npy
+                           (no model needed; no attn/MLP split)
+    see --help for the rest (GEMExtractionConfig fields)
 
 Usage
 -----
-    python src/build_gems.py --model EleutherAI/pythia-1.4b
-    python src/build_gems.py --all
-    python src/build_gems.py --all --phase 2 --k 3   # (Phase 2, not yet implemented)
+    python gem/build_gems.py --model EleutherAI/pythia-1.4b
+    python gem/build_gems.py --all --legacy
+    python gem/build_gems.py --model Qwen/Qwen2.5-0.5B --concepts negation --out-dir /tmp/x
 
-Outputs: ~/rosetta_data/models/<model_slug>/gem_<concept>.json
+Outputs: ~/rosetta_data/models/<model_slug>/gem_<concept>.json (+ .sidecar.npz)
 """
 
 from __future__ import annotations
@@ -29,8 +41,16 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
+try:
+    import rosetta_tools  # noqa: F401  (import-path probe)
+except ImportError:  # GPU-host layout first, then dev machine (see Rosetta_Program/CLAUDE.md)
+    for _p in (Path.home() / "rosetta_tools", Path.home() / "Source" / "Rosetta_Program" / "rosetta_tools"):
+        if _p.exists():
+            sys.path.insert(0, str(_p))
+            break
+
 from rosetta_tools.gem import (
-    discover_concepts, discover_all_models, find_extraction_dir,
+    GEMExtractionConfig, discover_concepts, discover_all_models, find_extraction_dir,
 )
 
 # ---------------------------------------------------------------------------
@@ -62,6 +82,80 @@ def _load_pos_neg_by_layer(extraction_dir: Path, concept: str, n_pairs: int) -> 
     return h_pos_by_layer, h_neg_by_layer
 
 
+class _ModelHandle:
+    """Loads the model/tokenizer lazily (only if some concept needs a
+    sublayer capture) and once per model. Same loading as extraction/
+    extract.py for small models: AutoModel, get_dtype(device) (bf16 on GPU)."""
+
+    def __init__(self, model_id: str, device: str | None, dtype: str | None):
+        self.model_id, self._device, self._dtype = model_id, device, dtype
+        self.model = self.tokenizer = None
+
+    def get(self):
+        if self.model is None:
+            import torch
+            from transformers import AutoModel, AutoTokenizer
+            from rosetta_tools.gpu_utils import get_device, get_dtype, log_vram
+            self.device = self._device or get_device()
+            dtype = (getattr(torch, self._dtype) if self._dtype and self._dtype != "auto"
+                     else get_dtype(self.device))
+            log.info("  loading %s (%s, %s) for sublayer capture", self.model_id, self.device, dtype)
+            self.tokenizer = AutoTokenizer.from_pretrained(self.model_id)
+            self.model = AutoModel.from_pretrained(self.model_id, dtype=dtype).to(self.device).eval()
+            log_vram("after model load")
+        return self.model, self.tokenizer, self.device
+
+    def release(self):
+        if self.model is not None:
+            from rosetta_tools.gpu_utils import release_model
+            release_model(self.model)
+            self.model = None
+
+
+def _build_layer_profile_for(
+    concept: str, caz_data: dict, extraction_dir: Path, cfg: GEMExtractionConfig,
+    handle: _ModelHandle,
+):
+    """Return (profile, arrays, docs) or None per cfg. Never raises for a
+    missing optional input; logs and returns None instead (the k=1 GEM is
+    still written)."""
+    from rosetta_tools.gem_sublayer import build_layer_profile, extract_concept_layer_profile
+    n_pairs = caz_data.get("n_pairs", 0)
+    split = caz_data.get("split", "train")
+    if cfg.sublayer_capture:
+        from rosetta_tools.dataset import load_concept_pairs, texts_by_label
+        pairs = load_concept_pairs(concept, n=n_pairs, split=split)
+        if len(pairs) != n_pairs:
+            log.warning("  %s: loaded %d pairs, caz_*.json used %d -- profile not comparable, skipping",
+                        concept, len(pairs), n_pairs)
+            return None
+        pos, neg = texts_by_label(pairs)
+        model, tok, device = handle.get()
+        return extract_concept_layer_profile(
+            model, tok, pos, neg, model_id=handle.model_id, device=device, config=cfg,
+            dataset=f"Rosetta_Concept_Pairs v1 load_concept_pairs({concept!r}, n={n_pairs}, split={split!r})",
+        )
+    loaded = _load_pos_neg_by_layer(extraction_dir, concept, n_pairs) if n_pairs else None
+    if loaded is None:
+        log.warning("  %s: no calibration_alllayer_%s.npy -- no stream-only layer profile", concept, concept)
+        return None
+    hp, hn = loaded
+    import numpy as np
+    L = len(hp)
+    from rosetta_tools.gem import Provenance
+    prov = Provenance(
+        method="build_gems stream-only: build_layer_profile on calibration_alllayer (hidden_states[1:]); "
+               "last layer is post-final-norm, no sublayer split",
+        model_id=caz_data.get("model_id", ""), capture_dtype="float32",
+        dataset=f"calibration_alllayer_{concept}.npy", pooling="last",
+    )
+    return build_layer_profile(
+        np.stack([hp[l] for l in range(L)]), np.stack([hn[l] for l in range(L)]),
+        n_perm=cfg.n_permutations, seed=cfg.permutation_seed, provenance=prov,
+        stream_source="hidden_states",
+    )
+
+
 def build_model_gems(
     model_id: str,
     concepts: list[str] | None = None,
@@ -69,8 +163,17 @@ def build_model_gems(
     force: bool = False,
     compute_settled_subspace: bool = False,
     settled_subspace_kwargs: dict | None = None,
+    config: GEMExtractionConfig | None = None,
+    out_dir: Path | None = None,
+    device: str | None = None,
+    dtype: str | None = None,
 ) -> dict:
     """Build GEMs for one model across all concepts.
+
+    config : GEMExtractionConfig (default: GEMExtractionConfig(), schema v2
+        with everything on). GEMExtractionConfig.legacy() reproduces the
+        pre-2026-10-15 output (v1 fields identical; v2 keys present as null).
+    out_dir : write here instead of the extraction dir (for smoke tests).
 
     k > 1 or compute_settled_subspace=True both require raw per-example
     activations (calibration_alllayer_{concept}.npy, saved at extraction
@@ -88,10 +191,6 @@ def build_model_gems(
 
     Returns dict of {concept: diagnostics_dict}.
     """
-    from rosetta_tools.gem import (
-        build_concept_gem, save_gem, validate_gem_node,
-        gem_diagnostics,
-    )
     from rosetta_tools.models import attention_paradigm_of
 
     extraction_dir = find_extraction_dir(model_id)
@@ -103,8 +202,28 @@ def build_model_gems(
         concepts = discover_concepts(extraction_dir, source="caz")
 
     paradigm = attention_paradigm_of(model_id)
-    log.info("=== Building GEMs: %s [%s] ===", model_id, paradigm)
+    cfg = config or GEMExtractionConfig()
+    target_dir = Path(out_dir) if out_dir else extraction_dir
+    target_dir.mkdir(parents=True, exist_ok=True)
+    handle = _ModelHandle(model_id, device, dtype)
+    log.info("=== Building GEMs: %s [%s] layer_profile=%s sublayer=%s ===",
+             model_id, paradigm, cfg.layer_profile, cfg.sublayer_capture)
 
+    results = {}
+    try:
+        results = _build_concepts(model_id, concepts, extraction_dir, target_dir, paradigm, cfg,
+                                  handle, k, force, compute_settled_subspace, settled_subspace_kwargs)
+    finally:
+        handle.release()
+    return results
+
+
+def _build_concepts(model_id, concepts, extraction_dir, target_dir, paradigm, cfg, handle,
+                    k, force, compute_settled_subspace, settled_subspace_kwargs) -> dict:
+    from dataclasses import replace
+    from rosetta_tools.gem import (
+        build_concept_gem, save_gem, validate_gem_node, gem_diagnostics,
+    )
     results = {}
     for concept in concepts:
         caz_path = extraction_dir / f"caz_{concept}.json"
@@ -112,14 +231,17 @@ def build_model_gems(
             log.warning("  No caz_%s.json, skipping", concept)
             continue
 
-        out_path = extraction_dir / f"gem_{concept}.json"
+        out_path = target_dir / f"gem_{concept}.json"
         if out_path.exists() and not force:
             # Check freshness: GEM should be newer than caz data AND match n_pairs
             if out_path.stat().st_mtime > caz_path.stat().st_mtime:
                 try:
                     caz_n = json.loads(caz_path.read_text()).get("n_pairs", 0)
-                    gem_n = json.loads(out_path.read_text()).get("n_pairs", 0)
-                    if gem_n >= caz_n > 0:
+                    existing = json.loads(out_path.read_text())
+                    gem_n = existing.get("n_pairs", 0)
+                    # A v1 GEM is stale when the config asks for a layer profile.
+                    has_profile = existing.get("layer_profile") is not None
+                    if gem_n >= caz_n > 0 and (has_profile or not cfg.layer_profile):
                         log.info("  %s: GEM up-to-date, skipping (use --force to rebuild)",
                                  concept)
                         continue
@@ -155,6 +277,18 @@ def build_model_gems(
             else:
                 h_pos_by_layer, h_neg_by_layer = loaded
 
+        layer_profile = arrays = docs = None
+        if cfg.layer_profile:
+            try:
+                built = _build_layer_profile_for(concept, caz_data, extraction_dir, cfg, handle)
+            except (ValueError, RuntimeError, NotImplementedError) as exc:
+                # e.g. additivity check failed / unsupported block: do not
+                # write wrong numbers; keep the v1 GEM.
+                log.error("  %s: layer profile FAILED (%s) -- writing GEM without it", concept, exc)
+                built = None
+            if built is not None:
+                layer_profile, arrays, docs = built
+
         try:
             # Build the GEM
             gem = build_concept_gem(
@@ -166,6 +300,8 @@ def build_model_gems(
                 h_neg_by_layer=h_neg_by_layer,
                 compute_settled_subspace=this_compute_settled_subspace,
                 settled_subspace_kwargs=settled_subspace_kwargs,
+                layer_profile=layer_profile,
+                detection_score=cfg.detection_score if layer_profile is not None else "fisher",
             )
         except (ValueError, KeyError, IndexError) as exc:
             log.error("  %s: FAILED — %s", concept, exc)
@@ -180,14 +316,11 @@ def build_model_gems(
                     log.warning("  %s node %d: %s", concept, node.caz_index, w)
                 all_warnings.extend(warnings)
 
-        # Save — patch n_pairs from caz_data so skip logic can validate it
-        save_gem(gem, out_path)
-        try:
-            gem_dict = json.loads(out_path.read_text())
-            gem_dict["n_pairs"] = caz_data.get("n_pairs", 0)
-            out_path.write_text(json.dumps(gem_dict, indent=2))
-        except Exception:
-            pass
+        # Save — carry n_pairs from caz_data (top-level key, via `extra`) so
+        # the skip logic can validate it; large arrays go to the sidecar.
+        gem = replace(gem, extra={**(gem.extra or {}), "n_pairs": caz_data.get("n_pairs", 0)})
+        save_gem(gem, out_path, arrays=arrays, array_docs=docs,
+                 inline_directions=cfg.inline_directions and arrays is not None)
 
         # Diagnostics
         diag = gem_diagnostics(gem)
@@ -273,7 +406,8 @@ def print_summary(all_results: dict[str, dict[str, dict]]) -> None:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Build CAZ GEMs (Geometric Evolution Maps) from existing extraction data (no GPU needed)",
+        description="Build CAZ GEMs (Geometric Evolution Maps). Schema v2 layer profile on by "
+                    "default (loads the model for the attn/MLP split); --legacy needs no GPU.",
     )
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--model", type=str, help="Single model ID")
@@ -296,7 +430,50 @@ def main():
                         help="Rebuild even if GEM files are up-to-date")
     parser.add_argument("--skip-model", action="append", default=[],
                         metavar="MODEL_ID", help="Skip this model (may be repeated)")
+    # Schema v2 switches (GEMExtractionConfig). Defaults: everything on.
+    v2 = parser.add_argument_group("schema v2 (layer profile)")
+    v2.add_argument("--legacy", action="store_true",
+                    help="Pre-v2 output: no layer profile, no model load (overrides the switches below)")
+    v2.add_argument("--no-layer-profile", action="store_true", help="Skip the LayerProfile")
+    v2.add_argument("--no-sublayer-capture", action="store_true",
+                    help="Stream-only profile from calibration_alllayer_*.npy (no model load)")
+    v2.add_argument("--no-full-sublayer-activations", action="store_true",
+                    help="Do not store raw per-example attn/MLP writes in the sidecar")
+    v2.add_argument("--no-post-final-norm", action="store_true",
+                    help="Do not record the post-final-norm stream at the last layer")
+    v2.add_argument("--inline-directions", action="store_true",
+                    help="Also write per-layer directions inline in the JSON")
+    v2.add_argument("--n-permutations", type=int, default=200)
+    v2.add_argument("--detection-score", choices=["fisher", "projected"], default="fisher",
+                    help="CAZ detector input; 'projected' is the parallel research path")
+    v2.add_argument("--allow-inexact", action="store_true",
+                    help="Record (and flag) instead of failing when Delta != attn + mlp")
+    v2.add_argument("--additivity-tol", type=float, default=None)
+    v2.add_argument("--batch-size", type=int, default=16)
+    v2.add_argument("--device", default=None, help="cuda / cpu (default: auto)")
+    v2.add_argument("--dtype", default=None, choices=["auto", "bfloat16", "float16", "float32"],
+                    help="Forward-pass dtype (default: auto = bf16 on GPU, as extraction)")
+    v2.add_argument("--out-dir", type=Path, default=None,
+                    help="Write GEMs here instead of the extraction dir (single --model only)")
     args = parser.parse_args()
+
+    if args.legacy:
+        cfg = GEMExtractionConfig.legacy()
+    else:
+        cfg = GEMExtractionConfig(
+            layer_profile=not args.no_layer_profile,
+            sublayer_capture=not args.no_sublayer_capture,
+            store_full_sublayer_activations=not args.no_full_sublayer_activations,
+            store_post_final_norm=not args.no_post_final_norm,
+            inline_directions=args.inline_directions,
+            n_permutations=args.n_permutations,
+            detection_score=args.detection_score,
+            allow_inexact=args.allow_inexact,
+            additivity_tol=args.additivity_tol,
+            batch_size=args.batch_size,
+        )
+    if args.out_dir and args.all:
+        parser.error("--out-dir only with --model")
 
     concepts = args.concepts or None  # None → auto-discover per model from caz_*.json
 
@@ -320,6 +497,7 @@ def main():
         results = build_model_gems(
             model_id, concepts, k=args.k, force=args.force,
             compute_settled_subspace=args.settled_subspace,
+            config=cfg, out_dir=args.out_dir, device=args.device, dtype=args.dtype,
         )
         if results is None:
             continue  # no extraction dir — already logged as error
