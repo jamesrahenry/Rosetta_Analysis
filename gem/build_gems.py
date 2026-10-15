@@ -123,8 +123,20 @@ def _build_layer_profile_for(
     n_pairs = caz_data.get("n_pairs", 0)
     split = caz_data.get("split", "train")
     if cfg.sublayer_capture:
-        from rosetta_tools.dataset import load_concept_pairs, texts_by_label
+        from rosetta_tools.dataset import load_concept_pairs, pair_set_provenance, texts_by_label
         pairs = load_concept_pairs(concept, n=n_pairs, split=split)
+        pair_set = pair_set_provenance(pairs, concept, split, n_pairs)
+        stored = caz_data.get("pair_set")
+        if stored and stored.get("sha256") != pair_set["sha256"]:
+            # The caz_*.json was extracted from a different pair set (e.g. before
+            # a dataset change). The profile would not describe the same data.
+            log.warning("  %s: pair set differs from the one recorded in caz_%s.json "
+                        "(%s... vs %s...) -- skipping layer profile; re-extract first",
+                        concept, concept, stored.get("sha256", "")[:12], pair_set["sha256"][:12])
+            return None
+        if not stored:
+            log.warning("  %s: caz_%s.json has no pair_set record (pre-2026-10-15 extraction); "
+                        "cannot confirm the profile uses the same pairs", concept, concept)
         if len(pairs) != n_pairs:
             log.warning("  %s: loaded %d pairs, caz_*.json used %d -- profile not comparable, skipping",
                         concept, len(pairs), n_pairs)
@@ -134,6 +146,7 @@ def _build_layer_profile_for(
         return extract_concept_layer_profile(
             model, tok, pos, neg, model_id=handle.model_id, device=device, config=cfg,
             dataset=f"Rosetta_Concept_Pairs v1 load_concept_pairs({concept!r}, n={n_pairs}, split={split!r})",
+            pair_set=pair_set,
         )
     loaded = _load_pos_neg_by_layer(extraction_dir, concept, n_pairs) if n_pairs else None
     if loaded is None:
@@ -148,6 +161,7 @@ def _build_layer_profile_for(
                "last layer is post-final-norm, no sublayer split",
         model_id=caz_data.get("model_id", ""), capture_dtype="float32",
         dataset=f"calibration_alllayer_{concept}.npy", pooling="last",
+        pair_set=caz_data.get("pair_set"),  # None for pre-2026-10-15 extractions
     )
     return build_layer_profile(
         np.stack([hp[l] for l in range(L)]), np.stack([hn[l] for l in range(L)]),
@@ -167,6 +181,7 @@ def build_model_gems(
     out_dir: Path | None = None,
     device: str | None = None,
     dtype: str | None = None,
+    models_root: Path | None = None,
 ) -> dict:
     """Build GEMs for one model across all concepts.
 
@@ -174,6 +189,9 @@ def build_model_gems(
         with everything on). GEMExtractionConfig.legacy() reproduces the
         pre-2026-10-15 output (v1 fields identical; v2 keys present as null).
     out_dir : write here instead of the extraction dir (for smoke tests).
+    models_root : read caz_*/calibration_* from <models_root>/<slug>/ instead
+        of ROSETTA_MODELS (e.g. a re-extraction root). Outputs then go to that
+        same directory unless out_dir is given.
 
     k > 1 or compute_settled_subspace=True both require raw per-example
     activations (calibration_alllayer_{concept}.npy, saved at extraction
@@ -193,7 +211,7 @@ def build_model_gems(
     """
     from rosetta_tools.models import attention_paradigm_of
 
-    extraction_dir = find_extraction_dir(model_id)
+    extraction_dir = find_extraction_dir(model_id, models_root=Path(models_root) if models_root else None)
     if extraction_dir is None:
         log.error("No extraction results for %s", model_id)
         return None
@@ -453,6 +471,9 @@ def main():
     v2.add_argument("--device", default=None, help="cuda / cpu (default: auto)")
     v2.add_argument("--dtype", default=None, choices=["auto", "bfloat16", "float16", "float32"],
                     help="Forward-pass dtype (default: auto = bf16 on GPU, as extraction)")
+    v2.add_argument("--models-root", type=Path, default=None,
+                    help="Read extraction data from <models-root>/<slug>/ instead of "
+                         "~/rosetta_data/models (outputs go there too unless --out-dir)")
     v2.add_argument("--out-dir", type=Path, default=None,
                     help="Write GEMs here instead of the extraction dir (single --model only)")
     args = parser.parse_args()
@@ -498,6 +519,7 @@ def main():
             model_id, concepts, k=args.k, force=args.force,
             compute_settled_subspace=args.settled_subspace,
             config=cfg, out_dir=args.out_dir, device=args.device, dtype=args.dtype,
+            models_root=args.models_root,
         )
         if results is None:
             continue  # no extraction dir — already logged as error

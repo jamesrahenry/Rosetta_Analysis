@@ -61,7 +61,7 @@ from rosetta_tools.gpu_utils import (
 )
 from rosetta_tools.extraction import extract_layer_wise_metrics, build_caz_record
 from rosetta_tools.dataset import (
-    load_concept_pairs, texts_by_label, CAZ_PRH_CONCEPTS,
+    load_concept_pairs, texts_by_label, CAZ_PRH_CONCEPTS, pair_set_provenance,
 )
 import rosetta_tools as _rt
 from tracking import start_run, log_concept, end_run
@@ -266,6 +266,9 @@ def extract_concept(concept, model, tokenizer, device, n_pairs, batch_size, out_
         log.info("  [%s] %s: caz present but calibration_alllayer missing — re-extracting", out_dir.name, concept)
 
     pairs = load_concept_pairs(concept, n=n_pairs or 200, split=split)
+    # Exact pair set (sha256 + Rosetta_Concept_Pairs commit), 2026-10-15:
+    # same load_concept_pairs call != same pairs once the dataset changes.
+    pair_set = pair_set_provenance(pairs, concept, split, n_pairs or 200)
 
     pos_texts, neg_texts = texts_by_label(pairs)
 
@@ -298,6 +301,7 @@ def extract_concept(concept, model, tokenizer, device, n_pairs, batch_size, out_
         extraction_seconds=elapsed,
         layer_data=layer_data,
     )
+    results["pair_set"] = pair_set
 
     out_path = out_dir / f"caz_{concept}.json"
     with out_path.open("w") as f:
@@ -333,6 +337,7 @@ def extract_concept(concept, model, tokenizer, device, n_pairs, batch_size, out_
             "attention_paradigm": attn,
         },
         "concept": concept,
+        "pair_set": pair_set,
         "extraction": {
             "n_pairs_requested": n_pairs or 200,
             "n_pairs_used": len(pairs),
