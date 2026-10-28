@@ -8,7 +8,7 @@ dependencies = [
     # extraction/extract.py (see PIPELINE_MIGRATION_PLAN.md). The P1-P4 preprints
     # cite v1.3.1 (DOI 10.5281/zenodo.20361433); re-running that exact citation
     # requires pinning back to v1.3.1, which still reproduces the full corpus.
-    "rosetta-tools @ git+https://github.com/jamesrahenry/Rosetta_Tools.git@v2.0.0",
+    "rosetta-tools @ git+https://github.com/jamesrahenry/Rosetta_Tools.git@v2.2.0",
     "torch>=2.2.0",
     "transformers>=4.40.0",
     "numpy>=1.24.0",
